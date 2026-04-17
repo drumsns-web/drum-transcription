@@ -22,6 +22,12 @@
   --kick:      #e07a40;
   --snare:     #5fa8e0;
   --hihat:     #88cc88;
+  --tom12:     #c678dd;
+  --tom13:     #a55fc0;
+  --tom16:     #7e45a0;
+  --crash:     #e5c94a;
+  --ride:      #d4a820;
+  --splash:    #f0e080;
   --auto-dim:  0.55;
   --step-w:    38px;
   --step-h:    38px;
@@ -215,9 +221,15 @@ html, body {
   border-bottom: 1px solid var(--border); padding: 0 4px;
   color: var(--text-dim); cursor: pointer; user-select: none; transition: color 0.15s;
 }
-.lane-header[data-lane="kick"]  { color: var(--kick); }
-.lane-header[data-lane="snare"] { color: var(--snare); }
-.lane-header[data-lane="hihat"] { color: var(--hihat); }
+.lane-header[data-lane="kick"]   { color: var(--kick); }
+.lane-header[data-lane="snare"]  { color: var(--snare); }
+.lane-header[data-lane="hihat"]  { color: var(--hihat); }
+.lane-header[data-lane="tom12"]  { color: var(--tom12); }
+.lane-header[data-lane="tom13"]  { color: var(--tom13); }
+.lane-header[data-lane="tom16"]  { color: var(--tom16); }
+.lane-header[data-lane="crash"]  { color: var(--crash); }
+.lane-header[data-lane="ride"]   { color: var(--ride); }
+.lane-header[data-lane="splash"] { color: var(--splash); }
 #step-grid { display: flex; flex-direction: column; }
 .lane-row { display: flex; flex-direction: row; height: var(--step-h); }
 .step-cell {
@@ -247,6 +259,24 @@ html, body {
 .lane-row[data-lane="hihat"] .step-cell.active-auto .dot,
 .lane-row[data-lane="hihat"] .step-cell.active-manual .dot { background: var(--hihat); }
 .lane-row[data-lane="hihat"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
+.lane-row[data-lane="tom12"] .step-cell.active-auto .dot,
+.lane-row[data-lane="tom12"] .step-cell.active-manual .dot { background: var(--tom12); }
+.lane-row[data-lane="tom12"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
+.lane-row[data-lane="tom13"] .step-cell.active-auto .dot,
+.lane-row[data-lane="tom13"] .step-cell.active-manual .dot { background: var(--tom13); }
+.lane-row[data-lane="tom13"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
+.lane-row[data-lane="tom16"] .step-cell.active-auto .dot,
+.lane-row[data-lane="tom16"] .step-cell.active-manual .dot { background: var(--tom16); }
+.lane-row[data-lane="tom16"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
+.lane-row[data-lane="crash"] .step-cell.active-auto .dot,
+.lane-row[data-lane="crash"] .step-cell.active-manual .dot { background: var(--crash); }
+.lane-row[data-lane="crash"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
+.lane-row[data-lane="ride"] .step-cell.active-auto .dot,
+.lane-row[data-lane="ride"] .step-cell.active-manual .dot  { background: var(--ride); }
+.lane-row[data-lane="ride"] .step-cell.active-auto .dot    { opacity: var(--auto-dim); }
+.lane-row[data-lane="splash"] .step-cell.active-auto .dot,
+.lane-row[data-lane="splash"] .step-cell.active-manual .dot { background: var(--splash); }
+.lane-row[data-lane="splash"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
 .step-cell.playhead { background: rgba(200, 169, 110, 0.12) !important; }
 .step-cell.playhead::after {
   content: ''; position: absolute; top: 0; bottom: 0; left: 0;
@@ -356,9 +386,15 @@ html, body {
 // ── 1. CONSTANTS & STATE ────────────────────────────────────
 
 const LANES = [
-  { id: 'kick',  name: 'KICK',  color: '#e07a40' },
-  { id: 'snare', name: 'SNARE', color: '#5fa8e0' },
-  { id: 'hihat', name: 'H.HAT', color: '#88cc88' },
+  { id: 'kick',   name: 'KICK',    color: '#e07a40' },
+  { id: 'snare',  name: 'SNARE',   color: '#5fa8e0' },
+  { id: 'hihat',  name: 'H.HAT',   color: '#88cc88' },
+  { id: 'tom12',  name: 'TOM 12"', color: '#c678dd' },
+  { id: 'tom13',  name: 'TOM 13"', color: '#a55fc0' },
+  { id: 'tom16',  name: 'TOM 16"', color: '#7e45a0' },
+  { id: 'crash',  name: 'CRASH',   color: '#e5c94a' },
+  { id: 'ride',   name: 'RIDE',    color: '#d4a820' },
+  { id: 'splash', name: 'SPLASH',  color: '#f0e080' },
 ];
 
 const STEPS_PER_MEASURE = 16;
@@ -727,40 +763,73 @@ function applyPointerToCell(cell) {
 
 // ── 7. SYNTH SAMPLES ────────────────────────────────────────
 
-let kickBuf, snareBuf, hihatBuf;
+const synthBufs = {};
 
 function makeSynthBufs() {
   const sr = audioCtx.sampleRate;
 
-  // Kick: pitched sine with pitch envelope
-  kickBuf = audioCtx.createBuffer(1, Math.floor(sr * 0.4), sr);
-  {
-    const d = kickBuf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) {
-      const t = i / sr;
-      d[i] = Math.exp(-t * 20) * Math.sin(2 * Math.PI * 60 * Math.exp(-t * 18) * t) * 0.9;
-    }
+  // Helper: create buffer with generator fn
+  function mkBuf(dur, fn) {
+    const buf = audioCtx.createBuffer(1, Math.floor(sr * dur), sr);
+    const d   = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = fn(i / sr, i, d.length);
+    return buf;
   }
 
-  // Snare: tone + noise
-  snareBuf = audioCtx.createBuffer(1, Math.floor(sr * 0.25), sr);
-  {
-    const d = snareBuf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) {
-      const t = i / sr, env = Math.exp(-t * 28);
-      d[i] = env * (Math.sin(2 * Math.PI * 190 * t) * 0.4 + (Math.random() * 2 - 1) * 0.7) * 0.6;
-    }
-  }
+  // KICK: low pitched sine, steep pitch drop
+  synthBufs.kick = mkBuf(0.40, t =>
+    Math.exp(-t * 20) * Math.sin(2 * Math.PI * 60 * Math.exp(-t * 18) * t) * 0.9
+  );
 
-  // HiHat: noise burst
-  hihatBuf = audioCtx.createBuffer(1, Math.floor(sr * 0.08), sr);
-  {
-    const d = hihatBuf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) {
-      const t = i / sr;
-      d[i] = Math.exp(-t * 80) * (Math.random() * 2 - 1) * 0.5;
-    }
-  }
+  // SNARE: mid tone + noise
+  synthBufs.snare = mkBuf(0.25, t => {
+    const env = Math.exp(-t * 28);
+    return env * (Math.sin(2 * Math.PI * 190 * t) * 0.4 + (Math.random() * 2 - 1) * 0.7) * 0.6;
+  });
+
+  // HIHAT (closed): short noise burst, high-pass
+  synthBufs.hihat = mkBuf(0.08, t =>
+    Math.exp(-t * 80) * (Math.random() * 2 - 1) * 0.5
+  );
+
+  // TOM 12" : higher pitch, medium decay
+  synthBufs.tom12 = mkBuf(0.35, t =>
+    Math.exp(-t * 14) * Math.sin(2 * Math.PI * 180 * Math.exp(-t * 8) * t) * 0.85
+  );
+
+  // TOM 13" : mid pitch
+  synthBufs.tom13 = mkBuf(0.38, t =>
+    Math.exp(-t * 12) * Math.sin(2 * Math.PI * 130 * Math.exp(-t * 7) * t) * 0.85
+  );
+
+  // TOM 16" (floor tom): low pitch, longer decay
+  synthBufs.tom16 = mkBuf(0.45, t =>
+    Math.exp(-t * 9) * Math.sin(2 * Math.PI * 80 * Math.exp(-t * 5) * t) * 0.88
+  );
+
+  // CRASH: bright noise + shimmer, long decay
+  synthBufs.crash = mkBuf(1.2, t => {
+    const env  = Math.exp(-t * 4);
+    const body = Math.sin(2 * Math.PI * 3200 * t) * 0.15;
+    const noise = (Math.random() * 2 - 1) * 0.85;
+    return env * (body + noise) * 0.5;
+  });
+
+  // RIDE: metallic tone with ping, medium decay
+  synthBufs.ride = mkBuf(0.9, t => {
+    const env  = Math.exp(-t * 5);
+    const ping = Math.sin(2 * Math.PI * 2800 * t) * 0.5 + Math.sin(2 * Math.PI * 4200 * t) * 0.25;
+    const sizzle = (Math.random() * 2 - 1) * 0.25;
+    return env * (ping + sizzle) * 0.55;
+  });
+
+  // SPLASH: short bright crash, very fast decay
+  synthBufs.splash = mkBuf(0.3, t => {
+    const env  = Math.exp(-t * 18);
+    const body = Math.sin(2 * Math.PI * 4800 * t) * 0.2;
+    const noise = (Math.random() * 2 - 1) * 0.8;
+    return env * (body + noise) * 0.45;
+  });
 }
 
 function playSample(buf, time) {
@@ -790,12 +859,11 @@ function startPlayback() {
   }
 
   const total = totalSteps();
-  const bufs  = { kick: kickBuf, snare: snareBuf, hihat: hihatBuf };
 
   toneSequence = new Tone.Sequence((time, step) => {
     state.currentStep = step;
     LANES.forEach(lane => {
-      if (getStep(lane.id, step).active) playSample(bufs[lane.id], time);
+      if (getStep(lane.id, step).active) playSample(synthBufs[lane.id], time);
     });
     Tone.getDraw().schedule(() => refreshAllCells(), time);
   }, Array.from({ length: total }, (_, i) => i), '16n');
