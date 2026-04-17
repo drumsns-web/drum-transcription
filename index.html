@@ -81,16 +81,42 @@ html, body {
 .ctrl-btn:active { background: var(--accent); color: #000; }
 .play-btn.playing { background: var(--accent); color: #000; border-color: var(--accent2); }
 .loop-btn.active  { background: var(--bg3); color: var(--accent); border-color: var(--accent); }
+.icon-btn { font-size: 17px; padding: 4px 10px; cursor: pointer; }
+
+/* BPM group */
+.bpm-group {
+  display: flex; align-items: center;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+}
+.bpm-nudge {
+  background: var(--bg3); border: none; color: var(--text-dim);
+  padding: 0 10px; height: 36px; font-size: 16px; cursor: pointer;
+  font-family: inherit; transition: background 0.12s, color 0.12s; line-height: 1;
+}
+.bpm-nudge:hover  { background: #2a2a2e; color: var(--accent); }
+.bpm-nudge:active { background: var(--accent); color: #000; }
 .bpm-label {
-  display: flex; align-items: center; gap: 5px;
-  color: var(--text-dim); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+  display: flex; flex-direction: column; align-items: center; padding: 0 6px;
 }
+.bpm-unit { font-size: 9px; color: var(--text-dim); letter-spacing: 0.12em; text-transform: uppercase; line-height: 1; margin-bottom: 1px; }
 #bpm-input {
-  background: var(--bg); border: 1px solid var(--border); color: var(--accent2);
-  border-radius: 4px; padding: 4px 6px; width: 56px;
-  font-size: 15px; font-family: inherit; text-align: center;
+  background: transparent; border: none; color: var(--accent2);
+  padding: 0; width: 44px; font-size: 15px; font-family: inherit;
+  text-align: center; outline: none;
 }
-#bpm-input:focus { outline: none; border-color: var(--accent); }
+#bpm-input::-webkit-inner-spin-button,
+#bpm-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+/* Toast notification */
+#toast {
+  position: fixed; bottom: calc(var(--foot-h) + 12px); left: 50%;
+  transform: translateX(-50%) translateY(8px);
+  background: var(--bg3); border: 1px solid var(--accent); color: var(--accent2);
+  padding: 8px 18px; border-radius: 20px; font-size: 12px; letter-spacing: 0.04em;
+  opacity: 0; transition: opacity 0.2s, transform 0.2s;
+  pointer-events: none; z-index: 200; white-space: nowrap;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
 /* ===== AUDIO BAR ===== */
 #audio-bar {
@@ -262,14 +288,23 @@ html, body {
       <span class="app-name">DrumScript</span>
     </div>
     <div class="header-center">
-      <button id="btn-play" class="ctrl-btn play-btn" title="再生">▶</button>
+      <button id="btn-play" class="ctrl-btn play-btn" title="再生 / 一時停止">▶</button>
       <button id="btn-stop" class="ctrl-btn" title="停止">■</button>
-      <label class="bpm-label">BPM
-        <input id="bpm-input" type="number" value="120" min="40" max="240">
-      </label>
+      <button id="btn-loop" class="ctrl-btn loop-btn" title="ループ ON/OFF">⟳</button>
+      <div class="bpm-group">
+        <button class="bpm-nudge" id="bpm-down" title="BPM -1">−</button>
+        <label class="bpm-label">
+          <span class="bpm-unit">BPM</span>
+          <input id="bpm-input" type="number" value="120" min="40" max="240">
+        </label>
+        <button class="bpm-nudge" id="bpm-up" title="BPM +1">＋</button>
+      </div>
     </div>
     <div class="header-right">
-      <button id="btn-loop" class="ctrl-btn loop-btn" title="ループ">⟳</button>
+      <button id="btn-save" class="ctrl-btn icon-btn" title="JSONで保存">💾</button>
+      <label  class="ctrl-btn icon-btn" title="JSONを読み込む" for="json-input">📂
+        <input id="json-input" type="file" accept=".json,application/json" hidden>
+      </label>
     </div>
   </header>
 
@@ -303,6 +338,8 @@ html, body {
       </div>
     </div>
   </main>
+
+  <div id="toast"></div>
 
   <footer id="toolbar">
     <button id="btn-draw"  class="tool-btn active" data-mode="draw">✏ 描画</button>
@@ -781,7 +818,66 @@ function stopPlayback() {
   refreshAllCells();
 }
 
-// ── 9. EVENT WIRING ─────────────────────────────────────────
+// ── 9. TOAST ────────────────────────────────────────────────
+
+let toastTimer = null;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+// ── 10. JSON SAVE / LOAD ─────────────────────────────────────
+
+function saveJSON() {
+  const data = {
+    version:  1,
+    bpm:      state.bpm,
+    measures: state.measures,
+    steps:    state.steps,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `drumscript_${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('💾 JSONを保存しました');
+}
+
+async function loadJSON(file) {
+  const text = await file.text();
+  const data = JSON.parse(text);
+  stopPlayback();
+  state.bpm      = data.bpm      ?? DEFAULT_BPM;
+  state.measures = data.measures ?? 4;
+  state.steps    = {};
+  // ensure all lanes exist with correct length
+  initSteps(state.measures);
+  LANES.forEach(lane => {
+    if (data.steps?.[lane.id]) {
+      data.steps[lane.id].forEach((s, i) => {
+        if (i < state.steps[lane.id].length) state.steps[lane.id][i] = s;
+      });
+    }
+  });
+  document.getElementById('bpm-input').value = state.bpm;
+  Tone.Transport.bpm.value = state.bpm;
+  renderGrid();
+  showToast('📂 JSONを読み込みました');
+}
+
+// ── 11. EVENT WIRING ─────────────────────────────────────────
+
+function setBPM(v) {
+  v = Math.max(40, Math.min(240, v));
+  state.bpm = v;
+  document.getElementById('bpm-input').value = v;
+  Tone.Transport.bpm.value = v;
+}
 
 function setProgress(pct, msg) {
   document.getElementById('progress-bar').style.setProperty('--progress', (pct * 100) + '%');
@@ -789,6 +885,7 @@ function setProgress(pct, msg) {
 }
 
 function wireEvents() {
+  // Audio file
   document.getElementById('file-input').addEventListener('change', async e => {
     const file = e.target.files[0];
     if (!file) return;
@@ -796,6 +893,7 @@ function wireEvents() {
     catch (err) { alert('読み込み失敗: ' + err.message); }
   });
 
+  // Analyze
   document.getElementById('btn-analyze').addEventListener('click', async () => {
     stopPlayback();
     const wrap = document.getElementById('progress-bar-wrap');
@@ -805,8 +903,7 @@ function wireEvents() {
     setProgress(0, '解析開始...');
     try {
       const { bpm, eventCount } = await runAnalysis(setProgress);
-      state.bpm = bpm;
-      document.getElementById('bpm-input').value = bpm;
+      setBPM(bpm);
       setProgress(1, `完了 — BPM: ${bpm} / ${eventCount}イベント`);
       await sleep(1200);
       wrap.hidden = true;
@@ -819,11 +916,13 @@ function wireEvents() {
     }
   });
 
+  // Play / Stop
   document.getElementById('btn-play').addEventListener('click', () => {
     if (state.isPlaying) stopPlayback(); else startPlayback();
   });
   document.getElementById('btn-stop').addEventListener('click', stopPlayback);
 
+  // Loop
   const loopBtn = document.getElementById('btn-loop');
   loopBtn.classList.toggle('active', state.isLooping);
   loopBtn.addEventListener('click', () => {
@@ -831,13 +930,31 @@ function wireEvents() {
     loopBtn.classList.toggle('active', state.isLooping);
     Tone.Transport.loop    = state.isLooping;
     Tone.Transport.loopEnd = `${state.measures}m`;
+    showToast(state.isLooping ? '⟳ ループ ON' : '⟳ ループ OFF');
   });
 
-  document.getElementById('bpm-input').addEventListener('change', e => {
+  // BPM input + nudge buttons
+  document.getElementById('bpm-input').addEventListener('change', e => setBPM(parseInt(e.target.value)));
+  document.getElementById('bpm-input').addEventListener('input',  e => {
     const v = parseInt(e.target.value);
     if (v >= 40 && v <= 240) { state.bpm = v; Tone.Transport.bpm.value = v; }
   });
+  document.getElementById('bpm-down').addEventListener('click', () => setBPM(state.bpm - 1));
+  document.getElementById('bpm-up').addEventListener('click',   () => setBPM(state.bpm + 1));
+  // Long-press BPM nudge
+  let nudgeInterval = null;
+  ['bpm-down','bpm-up'].forEach(id => {
+    const btn   = document.getElementById(id);
+    const delta = id === 'bpm-up' ? 1 : -1;
+    btn.addEventListener('pointerdown', () => {
+      nudgeInterval = setInterval(() => setBPM(state.bpm + delta), 80);
+    });
+    ['pointerup','pointerleave'].forEach(ev =>
+      btn.addEventListener(ev, () => clearInterval(nudgeInterval))
+    );
+  });
 
+  // Draw / Erase
   document.getElementById('btn-draw').addEventListener('click', () => {
     state.editMode = 'draw';
     document.getElementById('btn-draw').classList.add('active');
@@ -849,13 +966,28 @@ function wireEvents() {
     document.getElementById('btn-draw').classList.remove('active');
   });
 
+  // Clear
   document.getElementById('btn-clear').addEventListener('click', () => {
     if (!confirm('すべてのステップを消去しますか？')) return;
     stopPlayback(); initSteps(state.measures); renderGrid();
   });
 
+  // Demo
   document.getElementById('btn-demo').addEventListener('click', () => {
     stopPlayback(); loadDemoPattern(); renderGrid();
+    showToast('▣ デモパターンを読み込みました');
+  });
+
+  // JSON Save
+  document.getElementById('btn-save').addEventListener('click', saveJSON);
+
+  // JSON Load
+  document.getElementById('json-input').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try { await loadJSON(file); }
+    catch (err) { alert('読み込み失敗: ' + err.message); }
+    e.target.value = '';
   });
 
   document.addEventListener('contextmenu', e => e.preventDefault());
@@ -868,7 +1000,7 @@ function wireEvents() {
   });
 }
 
-// ── 10. DEMO PATTERN ────────────────────────────────────────
+// ── 12. DEMO PATTERN ────────────────────────────────────────
 
 function loadDemoPattern() {
   state.measures = 4;
@@ -886,7 +1018,7 @@ function loadDemoPattern() {
   }
 }
 
-// ── BOOT ────────────────────────────────────────────────────
+// ── BOOT ─────────────────────────────────────────────────────
 
 function boot() {
   initSteps(state.measures);
