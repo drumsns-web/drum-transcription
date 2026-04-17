@@ -4,12 +4,258 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>DrumScript</title>
-  <link rel="stylesheet" href="style.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  <style>
+/* ===== RESET & BASE ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0e0e0f;
+  --bg2:       #161618;
+  --bg3:       #1e1e21;
+  --border:    #2a2a2e;
+  --accent:    #c8a96e;
+  --accent2:   #e8c98e;
+  --red:       #e05555;
+  --text:      #d4d0c8;
+  --text-dim:  #6a6860;
+  --kick:      #e07a40;
+  --snare:     #5fa8e0;
+  --hihat:     #88cc88;
+  --auto-dim:  0.55;
+  --step-w:    38px;
+  --step-h:    38px;
+  --lane-w:    70px;
+  --header-h:  52px;
+  --foot-h:    52px;
+}
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+/* ===== HEADER ===== */
+#header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: var(--header-h);
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 12px;
+  z-index: 100;
+}
+.header-left {
+  display: flex; align-items: center; gap: 8px; min-width: 110px;
+}
+.app-logo { font-size: 18px; color: var(--accent); }
+.app-name {
+  font-size: 15px; font-weight: 700; letter-spacing: 0.08em;
+  color: var(--accent2); text-transform: uppercase;
+}
+.header-center {
+  display: flex; align-items: center; gap: 8px; flex: 1; justify-content: center;
+}
+.header-right {
+  display: flex; align-items: center; gap: 8px; min-width: 60px; justify-content: flex-end;
+}
+.ctrl-btn {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  min-width: 40px; min-height: 36px; line-height: 1;
+}
+.ctrl-btn:hover { background: #2a2a2e; border-color: var(--accent); }
+.ctrl-btn:active { background: var(--accent); color: #000; }
+.play-btn.playing { background: var(--accent); color: #000; border-color: var(--accent2); }
+.loop-btn.active  { background: var(--bg3); color: var(--accent); border-color: var(--accent); }
+.bpm-label {
+  display: flex; align-items: center; gap: 5px;
+  color: var(--text-dim); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+}
+#bpm-input {
+  background: var(--bg); border: 1px solid var(--border); color: var(--accent2);
+  border-radius: 4px; padding: 4px 6px; width: 56px;
+  font-size: 15px; font-family: inherit; text-align: center;
+}
+#bpm-input:focus { outline: none; border-color: var(--accent); }
+
+/* ===== AUDIO BAR ===== */
+#audio-bar {
+  position: fixed;
+  top: var(--header-h); left: 0; right: 0;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 12px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  z-index: 90;
+}
+.file-btn {
+  background: var(--bg3); border: 1px solid var(--accent); color: var(--accent);
+  border-radius: 6px; padding: 6px 12px; cursor: pointer;
+  font-size: 12px; font-family: inherit; letter-spacing: 0.05em;
+  white-space: nowrap; transition: background 0.15s;
+}
+.file-btn:hover { background: #2a2a2e; }
+.file-info {
+  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; overflow: hidden;
+}
+#file-name {
+  color: var(--text-dim); font-size: 12px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 180px;
+}
+#file-duration { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+.analyze-btn {
+  background: var(--accent); border: none; color: #000; font-weight: 700;
+  border-radius: 6px; padding: 7px 18px; font-size: 13px; cursor: pointer;
+  letter-spacing: 0.06em; transition: background 0.15s, opacity 0.15s;
+  font-family: inherit; white-space: nowrap;
+}
+.analyze-btn:disabled { opacity: 0.3; cursor: default; }
+.analyze-btn:not(:disabled):hover { background: var(--accent2); }
+.hint {
+  width: 100%; font-size: 10px; color: var(--text-dim);
+  letter-spacing: 0.02em; padding-top: 2px;
+}
+
+/* ===== PROGRESS ===== */
+#progress-bar-wrap {
+  position: fixed;
+  top: calc(var(--header-h) + 68px); left: 0; right: 0;
+  height: 28px; background: var(--bg2); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px; padding: 0 12px; z-index: 89;
+}
+#progress-bar-wrap[hidden] { display: none; }
+#progress-bar {
+  flex: 1; height: 6px; background: var(--border); border-radius: 3px;
+  overflow: hidden; position: relative;
+}
+#progress-bar::after {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+  width: var(--progress, 0%); background: var(--accent);
+  border-radius: 3px; transition: width 0.1s;
+}
+#progress-label { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+
+/* ===== GRID AREA ===== */
+#grid-area {
+  position: fixed;
+  top: calc(var(--header-h) + 68px); left: 0; right: 0; bottom: var(--foot-h);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#measure-ruler-wrap {
+  display: flex; height: 22px; background: var(--bg2);
+  border-bottom: 1px solid var(--border); overflow: hidden; flex-shrink: 0;
+}
+#measure-ruler-spacer {
+  width: var(--lane-w); flex-shrink: 0; border-right: 1px solid var(--border);
+}
+#measure-ruler { display: flex; overflow: hidden; }
+.ruler-measure {
+  display: flex; align-items: center; justify-content: center;
+  height: 22px; font-size: 10px; color: var(--text-dim);
+  letter-spacing: 0.05em; border-right: 1px solid var(--border); flex-shrink: 0;
+}
+#grid-scroll-wrap {
+  flex: 1; overflow-x: auto; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin; scrollbar-color: var(--border) var(--bg);
+}
+#grid-scroll-wrap::-webkit-scrollbar { height: 6px; width: 6px; }
+#grid-scroll-wrap::-webkit-scrollbar-track { background: var(--bg); }
+#grid-scroll-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+#grid-inner { display: flex; flex-direction: row; min-height: 100%; }
+#lane-headers {
+  position: sticky; left: 0; width: var(--lane-w); flex-shrink: 0;
+  background: var(--bg2); border-right: 1px solid var(--border);
+  z-index: 10; display: flex; flex-direction: column;
+}
+.lane-header {
+  display: flex; align-items: center; justify-content: center;
+  height: var(--step-h); font-size: 10px; font-weight: 700;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  border-bottom: 1px solid var(--border); padding: 0 4px;
+  color: var(--text-dim); cursor: pointer; user-select: none; transition: color 0.15s;
+}
+.lane-header[data-lane="kick"]  { color: var(--kick); }
+.lane-header[data-lane="snare"] { color: var(--snare); }
+.lane-header[data-lane="hihat"] { color: var(--hihat); }
+#step-grid { display: flex; flex-direction: column; }
+.lane-row { display: flex; flex-direction: row; height: var(--step-h); }
+.step-cell {
+  width: var(--step-w); height: var(--step-h); flex-shrink: 0;
+  border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; position: relative; transition: background 0.07s;
+  -webkit-tap-highlight-color: transparent; user-select: none;
+}
+.step-cell[data-beat-start="true"]   { border-left: 1px solid #3a3a3e; }
+.step-cell[data-measure-start="true"] { border-left: 2px solid #55555a; }
+.step-cell[data-beat="0"] { background: #131315; }
+.step-cell[data-beat="1"] { background: #111113; }
+.step-cell[data-beat="2"] { background: #131315; }
+.step-cell[data-beat="3"] { background: #111113; }
+.step-cell:hover { background: #252528; }
+.step-cell .dot {
+  width: 22px; height: 22px; border-radius: 4px; transition: transform 0.07s;
+}
+.step-cell:active .dot { transform: scale(0.88); }
+.lane-row[data-lane="kick"] .step-cell.active-auto .dot,
+.lane-row[data-lane="kick"] .step-cell.active-manual .dot { background: var(--kick); }
+.lane-row[data-lane="kick"] .step-cell.active-auto .dot  { opacity: var(--auto-dim); }
+.lane-row[data-lane="snare"] .step-cell.active-auto .dot,
+.lane-row[data-lane="snare"] .step-cell.active-manual .dot { background: var(--snare); }
+.lane-row[data-lane="snare"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
+.lane-row[data-lane="hihat"] .step-cell.active-auto .dot,
+.lane-row[data-lane="hihat"] .step-cell.active-manual .dot { background: var(--hihat); }
+.lane-row[data-lane="hihat"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
+.step-cell.playhead { background: rgba(200, 169, 110, 0.12) !important; }
+.step-cell.playhead::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 0;
+  width: 2px; background: var(--accent); border-radius: 1px;
+}
+
+/* ===== TOOLBAR ===== */
+#toolbar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: var(--foot-h); background: var(--bg2);
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  gap: 8px; padding: 0 12px; z-index: 100;
+}
+.tool-btn {
+  background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+  border-radius: 6px; padding: 7px 14px; font-size: 12px; cursor: pointer;
+  font-family: inherit; letter-spacing: 0.04em;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  min-height: 36px;
+}
+.tool-btn:hover  { background: #252528; border-color: var(--accent); }
+.tool-btn.active { background: #1e1e18; border-color: var(--accent); color: var(--accent); }
+.tool-btn.danger { color: var(--red); }
+.tool-btn.danger:hover { border-color: var(--red); }
+
+@media (max-width: 480px) {
+  :root { --step-w: 32px; --step-h: 36px; --lane-w: 58px; }
+  .app-name { display: none; }
+  .tool-btn { padding: 7px 10px; font-size: 11px; }
+}
+  </style>
 </head>
 <body>
 
-  <!-- HEADER -->
   <header id="header">
     <div class="header-left">
       <span class="app-logo">▣</span>
@@ -27,7 +273,6 @@
     </div>
   </header>
 
-  <!-- AUDIO LOAD BAR -->
   <section id="audio-bar">
     <label class="file-btn" for="file-input">
       <span>♪ 音源を開く</span>
@@ -41,36 +286,617 @@
     <div id="analyze-hint" class="hint">Moises等で分離済みのドラム音源を読み込んでください（未分離音源では精度が低下します）</div>
   </section>
 
-  <!-- PROGRESS BAR -->
   <div id="progress-bar-wrap" hidden>
     <div id="progress-bar"></div>
     <span id="progress-label">解析中...</span>
   </div>
 
-  <!-- GRID AREA -->
   <main id="grid-area">
-    <div id="grid-scroll-wrap">
-      <div id="grid-inner">
-        <!-- Lane headers + step grid -->
-        <div id="lane-headers"></div>
-        <div id="step-grid"></div>
-      </div>
-    </div>
-    <!-- measure ruler -->
     <div id="measure-ruler-wrap">
       <div id="measure-ruler-spacer"></div>
       <div id="measure-ruler"></div>
     </div>
+    <div id="grid-scroll-wrap">
+      <div id="grid-inner">
+        <div id="lane-headers"></div>
+        <div id="step-grid"></div>
+      </div>
+    </div>
   </main>
 
-  <!-- TOOLBAR -->
   <footer id="toolbar">
-    <button id="btn-draw" class="tool-btn active" data-mode="draw">✏ 描画</button>
-    <button id="btn-erase" class="tool-btn" data-mode="erase">✕ 消去</button>
+    <button id="btn-draw"  class="tool-btn active" data-mode="draw">✏ 描画</button>
+    <button id="btn-erase" class="tool-btn"         data-mode="erase">✕ 消去</button>
     <button id="btn-clear" class="tool-btn danger">🗑 全消去</button>
-    <button id="btn-demo" class="tool-btn">▣ デモ</button>
+    <button id="btn-demo"  class="tool-btn">▣ デモ</button>
   </footer>
 
-  <script src="app.js" type="module"></script>
+<script>
+// ============================================================
+//  DrumScript – MVP
+// ============================================================
+
+// ── 1. CONSTANTS & STATE ────────────────────────────────────
+
+const LANES = [
+  { id: 'kick',  name: 'KICK',  color: '#e07a40' },
+  { id: 'snare', name: 'SNARE', color: '#5fa8e0' },
+  { id: 'hihat', name: 'H.HAT', color: '#88cc88' },
+];
+
+const STEPS_PER_MEASURE = 16;
+const DEFAULT_BPM       = 120;
+
+const state = {
+  bpm:         DEFAULT_BPM,
+  measures:    4,
+  editMode:    'draw',
+  isPlaying:   false,
+  isLooping:   true,
+  currentStep: -1,
+  steps:       {},
+  audioBuffer: null,
+  audioFileName: null,
+  audioDuration: 0,
+};
+
+function initSteps(measures) {
+  const total = measures * STEPS_PER_MEASURE;
+  LANES.forEach(lane => {
+    state.steps[lane.id] = Array.from({ length: total }, () => ({
+      active: false, sourceType: 'manual',
+    }));
+  });
+}
+
+// ── 2. DATA HELPERS ─────────────────────────────────────────
+
+function setStep(laneId, idx, active, sourceType = 'manual') {
+  if (!state.steps[laneId]) return;
+  state.steps[laneId][idx] = { active, sourceType };
+}
+
+function getStep(laneId, idx) {
+  return state.steps[laneId]?.[idx] ?? { active: false, sourceType: 'manual' };
+}
+
+function totalSteps() { return state.measures * STEPS_PER_MEASURE; }
+
+// ── 3. AUDIO LOADER ─────────────────────────────────────────
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+async function loadAudioFile(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  state.audioBuffer   = audioBuffer;
+  state.audioFileName = file.name;
+  state.audioDuration = audioBuffer.duration;
+  document.getElementById('file-name').textContent     = file.name;
+  document.getElementById('file-duration').textContent = formatDuration(audioBuffer.duration);
+  document.getElementById('btn-analyze').disabled      = false;
+}
+
+function formatDuration(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+
+// ── 4. ANALYZER ─────────────────────────────────────────────
+
+const FRAME_SIZE  = 1024;
+const HOP_SIZE    = 512;
+const SAMPLE_RATE = 22050;
+
+const BAND = {
+  kick:  { lo: 20,   hi: 200   },
+  snare: { lo: 180,  hi: 2000  },
+  hihat: { lo: 5000, hi: 18000 },
+};
+
+function bandPower(mag, loHz, hiHz, fftSize, sr) {
+  const lo = Math.round(loHz / (sr / fftSize));
+  const hi = Math.min(Math.round(hiHz / (sr / fftSize)), mag.length - 1);
+  let sum = 0;
+  for (let i = lo; i <= hi; i++) sum += mag[i] * mag[i];
+  return sum / Math.max(1, hi - lo + 1);
+}
+
+async function resampleToMono(audioBuffer) {
+  const dur    = Math.min(audioBuffer.duration, 180);
+  const frames = Math.ceil(dur * SAMPLE_RATE);
+  const offline = new OfflineAudioContext(1, frames, SAMPLE_RATE);
+  const src     = offline.createBufferSource();
+  src.buffer = audioBuffer;
+  src.connect(offline.destination);
+  src.start(0);
+  return offline.startRendering();
+}
+
+function detectOnsets(monoBuffer) {
+  const samples  = monoBuffer.getChannelData(0);
+  const sr       = monoBuffer.sampleRate;
+  const fftSize  = FRAME_SIZE;
+  const fftHalf  = fftSize / 2;
+  const numFrames = Math.floor((samples.length - fftSize) / HOP_SIZE);
+  const prevMag  = new Float32Array(fftHalf);
+  const fluxArr  = [];
+
+  const hann = new Float32Array(fftSize);
+  for (let n = 0; n < fftSize; n++)
+    hann[n] = 0.5 * (1 - Math.cos((2 * Math.PI * n) / (fftSize - 1)));
+
+  for (let f = 0; f < numFrames; f++) {
+    const start    = f * HOP_SIZE;
+    const windowed = new Float32Array(fftSize);
+    for (let i = 0; i < fftSize; i++)
+      windowed[i] = (samples[start + i] || 0) * hann[i];
+
+    const mag = new Float32Array(fftHalf);
+    for (let k = 0; k < fftHalf; k++) {
+      let re = 0, im = 0;
+      for (let n = 0; n < fftSize; n++) {
+        const angle = (2 * Math.PI * k * n) / fftSize;
+        re += windowed[n] * Math.cos(angle);
+        im -= windowed[n] * Math.sin(angle);
+      }
+      mag[k] = Math.sqrt(re * re + im * im);
+    }
+
+    let flux = 0;
+    for (let k = 0; k < fftHalf; k++) {
+      const diff = mag[k] - prevMag[k];
+      if (diff > 0) flux += diff;
+    }
+    fluxArr.push({ time: start / sr, flux });
+    prevMag.set(mag);
+  }
+
+  const W = 20;
+  const onsets = [];
+  for (let i = W; i < fluxArr.length - W; i++) {
+    const local = fluxArr.slice(i - W, i + W).map(x => x.flux);
+    const mean  = local.reduce((a, b) => a + b, 0) / local.length;
+    const thresh = mean * 1.5 + 0.001;
+    if (
+      fluxArr[i].flux > thresh &&
+      fluxArr[i].flux > fluxArr[i - 1].flux &&
+      fluxArr[i].flux > fluxArr[i + 1].flux
+    ) onsets.push(fluxArr[i].time);
+  }
+  return { onsets, sr, samples };
+}
+
+function estimateBPM(onsets) {
+  if (onsets.length < 4) return DEFAULT_BPM;
+  const intervals = [];
+  for (let i = 1; i < Math.min(onsets.length, 80); i++) {
+    const d = onsets[i] - onsets[i - 1];
+    if (d > 0.1 && d < 2.0) intervals.push(d);
+  }
+  if (!intervals.length) return DEFAULT_BPM;
+  const bpmBins = {};
+  intervals.forEach(iv => {
+    const bpm = Math.round(60 / iv);
+    for (let b = bpm - 2; b <= bpm + 2; b++)
+      bpmBins[b] = (bpmBins[b] || 0) + 1;
+    [bpm * 2, Math.round(bpm / 2)].forEach(b2 => {
+      if (b2 >= 60 && b2 <= 200) bpmBins[b2] = (bpmBins[b2] || 0) + 0.5;
+    });
+  });
+  let best = DEFAULT_BPM, bestCount = 0;
+  Object.entries(bpmBins).forEach(([b, cnt]) => {
+    const bv = parseInt(b);
+    if (bv >= 60 && bv <= 200 && cnt > bestCount) { bestCount = cnt; best = bv; }
+  });
+  return best;
+}
+
+function classifyOnsets(onsets, monoBuffer) {
+  const sr      = monoBuffer.sampleRate;
+  const samples = monoBuffer.getChannelData(0);
+  const fftSize = 1024;
+  const fftHalf = fftSize / 2;
+  const hann    = new Float32Array(fftSize);
+  for (let n = 0; n < fftSize; n++)
+    hann[n] = 0.5 * (1 - Math.cos((2 * Math.PI * n) / (fftSize - 1)));
+
+  return onsets.map(t => {
+    const start    = Math.max(0, Math.floor(t * sr));
+    const windowed = new Float32Array(fftSize);
+    for (let i = 0; i < fftSize; i++)
+      windowed[i] = (samples[start + i] || 0) * hann[i];
+
+    const mag = new Float32Array(fftHalf);
+    for (let k = 0; k < fftHalf; k++) {
+      let re = 0, im = 0;
+      for (let n = 0; n < fftSize; n++) {
+        const angle = (2 * Math.PI * k * n) / fftSize;
+        re += windowed[n] * Math.cos(angle);
+        im -= windowed[n] * Math.sin(angle);
+      }
+      mag[k] = Math.sqrt(re * re + im * im);
+    }
+
+    const kickP  = bandPower(mag, BAND.kick.lo,  BAND.kick.hi,  fftSize, sr);
+    const snareP = bandPower(mag, BAND.snare.lo, BAND.snare.hi, fftSize, sr);
+    const hihatP = bandPower(mag, BAND.hihat.lo, BAND.hihat.hi, fftSize, sr);
+    const total  = kickP + snareP + hihatP || 1;
+
+    let laneId, confidence;
+    if (kickP > snareP * 1.8 && kickP > hihatP * 2.5) {
+      laneId = 'kick';  confidence = kickP / total;
+    } else if (hihatP > kickP * 3 && hihatP > snareP * 0.8) {
+      laneId = 'hihat'; confidence = hihatP / total;
+    } else {
+      laneId = 'snare'; confidence = snareP / total;
+    }
+    return { timeSeconds: t, laneId, confidence: Math.min(1, confidence) };
+  });
+}
+
+function snapToGrid(events, bpm, measures) {
+  const stepDuration = (60 / bpm) / 4;
+  const total        = measures * STEPS_PER_MEASURE;
+  LANES.forEach(lane => {
+    for (let i = 0; i < total; i++) {
+      if (state.steps[lane.id][i]?.sourceType === 'auto')
+        state.steps[lane.id][i] = { active: false, sourceType: 'manual' };
+    }
+  });
+  events.forEach(ev => {
+    const idx = Math.round(ev.timeSeconds / stepDuration);
+    if (idx >= 0 && idx < total) {
+      const ex = state.steps[ev.laneId][idx];
+      if (!ex || !ex.active || ex.sourceType === 'auto')
+        state.steps[ev.laneId][idx] = { active: true, sourceType: 'auto' };
+    }
+  });
+}
+
+async function runAnalysis(onProgress) {
+  onProgress(0.05, '音源を変換中...');
+  const mono = await resampleToMono(state.audioBuffer);
+
+  onProgress(0.2, 'オンセット検出中...');
+  await sleep(20);
+  const { onsets } = detectOnsets(mono);
+
+  onProgress(0.55, `${onsets.length}個検出。BPM推定中...`);
+  await sleep(20);
+  const bpm = estimateBPM(onsets);
+
+  onProgress(0.7, `BPM: ${bpm}。周波数分類中...`);
+  await sleep(20);
+  const events = classifyOnsets(onsets, mono);
+
+  onProgress(0.9, 'グリッドに配置中...');
+  await sleep(10);
+
+  const measuresNeeded = Math.max(4, Math.ceil(state.audioDuration * (bpm / 60) / 4));
+  if (measuresNeeded !== state.measures) {
+    state.measures = measuresNeeded;
+    initSteps(state.measures);
+  }
+  snapToGrid(events, bpm, state.measures);
+
+  onProgress(1.0, '完了');
+  return { bpm, eventCount: events.length };
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── 5. GRID UI ──────────────────────────────────────────────
+
+function renderGrid() {
+  const laneHeaders = document.getElementById('lane-headers');
+  const stepGrid    = document.getElementById('step-grid');
+  const ruler       = document.getElementById('measure-ruler');
+  const total       = totalSteps();
+  const stepW       = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--step-w'));
+
+  laneHeaders.innerHTML = '';
+  stepGrid.innerHTML    = '';
+  ruler.innerHTML       = '';
+
+  for (let m = 0; m < state.measures; m++) {
+    const el = document.createElement('div');
+    el.className = 'ruler-measure';
+    el.style.width = (STEPS_PER_MEASURE * stepW) + 'px';
+    el.textContent = `M${m + 1}`;
+    ruler.appendChild(el);
+  }
+
+  LANES.forEach(lane => {
+    const hdr = document.createElement('div');
+    hdr.className = 'lane-header';
+    hdr.dataset.lane = lane.id;
+    hdr.textContent  = lane.name;
+    laneHeaders.appendChild(hdr);
+
+    const row = document.createElement('div');
+    row.className    = 'lane-row';
+    row.dataset.lane = lane.id;
+
+    for (let i = 0; i < total; i++) {
+      const beat       = Math.floor(i % STEPS_PER_MEASURE / 4);
+      const isMeasureS = i % STEPS_PER_MEASURE === 0;
+      const isBeatS    = i % 4 === 0;
+
+      const cell = document.createElement('div');
+      cell.className = 'step-cell';
+      cell.dataset.lane  = lane.id;
+      cell.dataset.idx   = i;
+      cell.dataset.beat  = beat;
+      if (isBeatS)   cell.dataset.beatStart    = 'true';
+      if (isMeasureS) cell.dataset.measureStart = 'true';
+
+      const dot = document.createElement('div');
+      dot.className = 'dot';
+      cell.appendChild(dot);
+      updateCellVisual(cell, lane.id, i);
+      cell.addEventListener('pointerdown',  onStepPointerDown);
+      cell.addEventListener('pointerenter', onStepPointerEnter);
+      row.appendChild(cell);
+    }
+    stepGrid.appendChild(row);
+  });
+}
+
+function updateCellVisual(cell, laneId, idx) {
+  const step = getStep(laneId, idx);
+  cell.classList.remove('active-auto', 'active-manual', 'playhead');
+  if (step.active)
+    cell.classList.add(step.sourceType === 'auto' ? 'active-auto' : 'active-manual');
+  if (idx === state.currentStep)
+    cell.classList.add('playhead');
+}
+
+function refreshAllCells() {
+  document.querySelectorAll('.step-cell').forEach(cell =>
+    updateCellVisual(cell, cell.dataset.lane, parseInt(cell.dataset.idx))
+  );
+}
+
+// ── 6. POINTER EDITING ──────────────────────────────────────
+
+let pointerDown = false, pointerLaneId = null, pointerIntent = null;
+
+function onStepPointerDown(e) {
+  e.preventDefault();
+  pointerDown   = true;
+  pointerLaneId = e.currentTarget.dataset.lane;
+  const idx     = parseInt(e.currentTarget.dataset.idx);
+  const step    = getStep(pointerLaneId, idx);
+  pointerIntent = (state.editMode === 'draw' && !step.active) ? 'activate' : 'deactivate';
+  applyPointerToCell(e.currentTarget);
+  document.addEventListener('pointerup', () => {
+    pointerDown = false; pointerLaneId = null; pointerIntent = null;
+  }, { once: true });
+}
+
+function onStepPointerEnter(e) {
+  if (!pointerDown || e.currentTarget.dataset.lane !== pointerLaneId) return;
+  applyPointerToCell(e.currentTarget);
+}
+
+function applyPointerToCell(cell) {
+  const laneId = cell.dataset.lane;
+  const idx    = parseInt(cell.dataset.idx);
+  setStep(laneId, idx, pointerIntent === 'activate', 'manual');
+  updateCellVisual(cell, laneId, idx);
+}
+
+// ── 7. SYNTH SAMPLES ────────────────────────────────────────
+
+let kickBuf, snareBuf, hihatBuf;
+
+function makeSynthBufs() {
+  const sr = audioCtx.sampleRate;
+
+  // Kick: pitched sine with pitch envelope
+  kickBuf = audioCtx.createBuffer(1, Math.floor(sr * 0.4), sr);
+  {
+    const d = kickBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) {
+      const t = i / sr;
+      d[i] = Math.exp(-t * 20) * Math.sin(2 * Math.PI * 60 * Math.exp(-t * 18) * t) * 0.9;
+    }
+  }
+
+  // Snare: tone + noise
+  snareBuf = audioCtx.createBuffer(1, Math.floor(sr * 0.25), sr);
+  {
+    const d = snareBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) {
+      const t = i / sr, env = Math.exp(-t * 28);
+      d[i] = env * (Math.sin(2 * Math.PI * 190 * t) * 0.4 + (Math.random() * 2 - 1) * 0.7) * 0.6;
+    }
+  }
+
+  // HiHat: noise burst
+  hihatBuf = audioCtx.createBuffer(1, Math.floor(sr * 0.08), sr);
+  {
+    const d = hihatBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) {
+      const t = i / sr;
+      d[i] = Math.exp(-t * 80) * (Math.random() * 2 - 1) * 0.5;
+    }
+  }
+}
+
+function playSample(buf, time) {
+  if (!buf) return;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const g = audioCtx.createGain();
+  g.gain.value = 0.85;
+  src.connect(g);
+  g.connect(audioCtx.destination);
+  src.start(time);
+}
+
+// ── 8. PLAYER (Tone.js) ─────────────────────────────────────
+
+let toneSequence = null;
+
+function startPlayback() {
+  if (state.isPlaying) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+
+  Tone.Transport.bpm.value = state.bpm;
+  Tone.Transport.loop      = state.isLooping;
+  if (state.isLooping) {
+    Tone.Transport.loopStart = 0;
+    Tone.Transport.loopEnd   = `${state.measures}m`;
+  }
+
+  const total = totalSteps();
+  const bufs  = { kick: kickBuf, snare: snareBuf, hihat: hihatBuf };
+
+  toneSequence = new Tone.Sequence((time, step) => {
+    state.currentStep = step;
+    LANES.forEach(lane => {
+      if (getStep(lane.id, step).active) playSample(bufs[lane.id], time);
+    });
+    Tone.getDraw().schedule(() => refreshAllCells(), time);
+  }, Array.from({ length: total }, (_, i) => i), '16n');
+
+  toneSequence.start(0);
+  Tone.Transport.start();
+  state.isPlaying = true;
+  document.getElementById('btn-play').classList.add('playing');
+  document.getElementById('btn-play').textContent = '⏸';
+}
+
+function stopPlayback() {
+  if (!state.isPlaying) return;
+  Tone.Transport.stop();
+  if (toneSequence) { toneSequence.stop(); toneSequence.dispose(); toneSequence = null; }
+  state.isPlaying   = false;
+  state.currentStep = -1;
+  document.getElementById('btn-play').classList.remove('playing');
+  document.getElementById('btn-play').textContent = '▶';
+  refreshAllCells();
+}
+
+// ── 9. EVENT WIRING ─────────────────────────────────────────
+
+function setProgress(pct, msg) {
+  document.getElementById('progress-bar').style.setProperty('--progress', (pct * 100) + '%');
+  document.getElementById('progress-label').textContent = msg;
+}
+
+function wireEvents() {
+  document.getElementById('file-input').addEventListener('change', async e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try { await loadAudioFile(file); }
+    catch (err) { alert('読み込み失敗: ' + err.message); }
+  });
+
+  document.getElementById('btn-analyze').addEventListener('click', async () => {
+    stopPlayback();
+    const wrap = document.getElementById('progress-bar-wrap');
+    const btn  = document.getElementById('btn-analyze');
+    btn.disabled = true;
+    wrap.hidden  = false;
+    setProgress(0, '解析開始...');
+    try {
+      const { bpm, eventCount } = await runAnalysis(setProgress);
+      state.bpm = bpm;
+      document.getElementById('bpm-input').value = bpm;
+      setProgress(1, `完了 — BPM: ${bpm} / ${eventCount}イベント`);
+      await sleep(1200);
+      wrap.hidden = true;
+      renderGrid();
+    } catch (err) {
+      document.getElementById('progress-label').textContent = 'エラー: ' + err.message;
+      console.error(err);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('btn-play').addEventListener('click', () => {
+    if (state.isPlaying) stopPlayback(); else startPlayback();
+  });
+  document.getElementById('btn-stop').addEventListener('click', stopPlayback);
+
+  const loopBtn = document.getElementById('btn-loop');
+  loopBtn.classList.toggle('active', state.isLooping);
+  loopBtn.addEventListener('click', () => {
+    state.isLooping = !state.isLooping;
+    loopBtn.classList.toggle('active', state.isLooping);
+    Tone.Transport.loop    = state.isLooping;
+    Tone.Transport.loopEnd = `${state.measures}m`;
+  });
+
+  document.getElementById('bpm-input').addEventListener('change', e => {
+    const v = parseInt(e.target.value);
+    if (v >= 40 && v <= 240) { state.bpm = v; Tone.Transport.bpm.value = v; }
+  });
+
+  document.getElementById('btn-draw').addEventListener('click', () => {
+    state.editMode = 'draw';
+    document.getElementById('btn-draw').classList.add('active');
+    document.getElementById('btn-erase').classList.remove('active');
+  });
+  document.getElementById('btn-erase').addEventListener('click', () => {
+    state.editMode = 'erase';
+    document.getElementById('btn-erase').classList.add('active');
+    document.getElementById('btn-draw').classList.remove('active');
+  });
+
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    if (!confirm('すべてのステップを消去しますか？')) return;
+    stopPlayback(); initSteps(state.measures); renderGrid();
+  });
+
+  document.getElementById('btn-demo').addEventListener('click', () => {
+    stopPlayback(); loadDemoPattern(); renderGrid();
+  });
+
+  document.addEventListener('contextmenu', e => e.preventDefault());
+
+  // Sync ruler scroll
+  const scrollWrap = document.getElementById('grid-scroll-wrap');
+  const ruler      = document.getElementById('measure-ruler');
+  scrollWrap.addEventListener('scroll', () => {
+    ruler.style.transform = `translateX(-${scrollWrap.scrollLeft}px)`;
+  });
+}
+
+// ── 10. DEMO PATTERN ────────────────────────────────────────
+
+function loadDemoPattern() {
+  state.measures = 4;
+  initSteps(4);
+  const kick  = [1,0,0,0, 0,0,1,0, 0,0,0,0, 1,0,0,0];
+  const snare = [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0];
+  const hihat = [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0];
+  for (let m = 0; m < 4; m++) {
+    for (let s = 0; s < 16; s++) {
+      const gi = m * 16 + s;
+      if (kick[s])  setStep('kick',  gi, true, 'manual');
+      if (snare[s]) setStep('snare', gi, true, 'manual');
+      if (hihat[s]) setStep('hihat', gi, true, 'manual');
+    }
+  }
+}
+
+// ── BOOT ────────────────────────────────────────────────────
+
+function boot() {
+  initSteps(state.measures);
+  makeSynthBufs();
+  loadDemoPattern();
+  renderGrid();
+  wireEvents();
+}
+
+boot();
+</script>
 </body>
 </html>
