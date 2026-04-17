@@ -1294,45 +1294,60 @@ function buildSlots(measureIdx, voice) {
 }
 
 // スロット列からVexFlow StaveNote列を生成
-// 休符は GhostNote（不可視）で埋める → 休符記号が乱立しない
+// 音符の長さ = そのヒットから次のヒット（または小節末）までの距離で決定
 function buildVfNotes(slots, stemDir, VF) {
   const { StaveNote, GhostNote } = VF;
+  const L = slots.length; // 16（=1小節の16分ステップ数）
   const notes = [];
-  let i = 0;
-  const L = slots.length; // 16
 
+  // 各スロットについて「次のヒットまでの距離」を計算
+  // 距離 → 音符の長さ
   const DUR_TABLE = [
     { steps: 4, dur: 'q'  },
     { steps: 2, dur: '8'  },
     { steps: 1, dur: '16' },
   ];
 
-  function bestDur(gap) {
-    for (const d of DUR_TABLE) if (d.steps <= gap) return d;
+  function stepsToNote(steps) {
+    for (const d of DUR_TABLE) {
+      if (steps >= d.steps) return d;
+    }
     return DUR_TABLE[DUR_TABLE.length - 1];
   }
 
+  // 次のヒットまでの距離（または小節末まで）
+  function distToNext(from) {
+    for (let j = from + 1; j < L; j++) {
+      if (slots[j].length > 0) return j - from;
+    }
+    return L - from; // 小節末まで
+  }
+
+  let i = 0;
   while (i < L) {
     if (slots[i].length > 0) {
-      // ヒットあり → 16分音符
+      const dist = distToNext(i);
+      const durDef = stepsToNote(dist);
+
       const evs = slots[i].slice().sort((a, b) => vfPitch(b.def.key) - vfPitch(a.def.key));
       const keys = evs.map(e => e.def.key);
+
       const note = new StaveNote({
         keys,
-        duration: '16',
+        duration: durDef.dur,
         stem_direction: stemDir,
         clef: 'percussion',
       });
       notes.push(note);
       i += 1;
+
     } else {
-      // 空スロット → GhostNote（透明、スペース確保のみ）
-      // まとめられる長さで GhostNote を生成
+      // 空スロット → 次のヒットまでをまとめてGhostNoteで埋める
       let gap = 0;
       while (i + gap < L && slots[i + gap].length === 0) gap++;
+
       while (gap > 0) {
-        const d = bestDur(gap);
-        // GhostNote が使えない場合は透明スタイルの休符にフォールバック
+        const d = stepsToNote(gap);
         let ghost;
         if (GhostNote) {
           ghost = new GhostNote({ duration: d.dur });
