@@ -1255,19 +1255,19 @@ function loadDemoPattern() {
 
 // VexFlowドラムマップ: 各楽器のキー・声部・符頭形状
 const VF_DRUM_MAP = {
-  // bass clef での位置
-  // 第5線=G3, 第4線=B3, 第3線=D4, 第2線=F4, 第1線=A4
-  // 間: 第4間=A3, 第3間=C4, 第2間=E4, 第1間=G4
-  // 五線上: B4(第5線のすぐ上)
-  crash:  { key:'c/5/x',  stem:  1 },  // 加線1本上 ×
-  splash: { key:'c/5/x',  stem:  1 },  // 同上 ×
-  ride:   { key:'b/4/x',  stem:  1 },  // 第5線すぐ上 ×
-  hihat:  { key:'b/4/x',  stem:  1 },  // 第5線すぐ上 ×
-  tom12:  { key:'e/4',    stem: -1 },  // 第2間（ハイタム）
-  tom13:  { key:'d/4',    stem: -1 },  // 第3線（ミッドタム）
-  snare:  { key:'c/4',    stem: -1 },  // 第3間（スネア）
-  tom16:  { key:'b/3',    stem: -1 },  // 第4線（フロアタム）
-  kick:   { key:'f/3',    stem: -1 },  // 第1線より下（キック）
+  // bass clef 正確な音名→位置対応
+  // 第1線=G2, 第2線=B2, 第3線=D3, 第4線=F3, 第5線=A3
+  // 間: 第1間=A2, 第2間=C3, 第3間=E3, 第4間=G3
+  // 五線上: B3（第5線のすぐ上）
+  crash:  { key:'d/4/x',  stem:  1 },  // 加線1本上の間 ×
+  splash: { key:'d/4/x',  stem:  1 },  // 同上 ×
+  ride:   { key:'b/3/x',  stem:  1 },  // 第5線のすぐ上 ×
+  hihat:  { key:'b/3/x',  stem:  1 },  // 第5線のすぐ上 ×
+  tom12:  { key:'g/3',    stem: -1 },  // 第4間
+  tom13:  { key:'e/3',    stem: -1 },  // 第3間
+  snare:  { key:'d/3',    stem: -1 },  // 第3線
+  tom16:  { key:'b/2',    stem: -1 },  // 第2線
+  kick:   { key:'f/2',    stem: -1 },  // 第1線より下
 };
 
 // 音名の高さ比較用
@@ -1356,7 +1356,7 @@ function buildVfNotes(slots, stemDir, VF) {
           ghost = new GhostNote({ duration: d.dur });
         } else {
           ghost = new StaveNote({
-            keys: [stemDir === 1 ? 'b/5' : 'e/4'],
+            keys: [stemDir === 1 ? 'b/3' : 'd/3'],
             duration: d.dur + 'r',
             stem_direction: stemDir,
           });
