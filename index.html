@@ -1255,16 +1255,16 @@ function loadDemoPattern() {
 
 // VexFlowドラムマップ: 各楽器のキー・声部・符頭形状
 const VF_DRUM_MAP = {
-  //          key       stem   xHead
-  crash:  { key:'a/5', stem: 1,  xHead: true  },
-  splash: { key:'g/5', stem: 1,  xHead: true  },
-  ride:   { key:'f/5', stem: 1,  xHead: false },  // 通常符頭
-  hihat:  { key:'g/5', stem: 1,  xHead: true  },  // splashと同じ高さ、×
-  tom12:  { key:'c/5', stem:-1,  xHead: false },
-  tom13:  { key:'a/4', stem:-1,  xHead: false },
-  snare:  { key:'b/4', stem:-1,  xHead: false },
-  tom16:  { key:'g/4', stem:-1,  xHead: false },
-  kick:   { key:'d/4', stem:-1,  xHead: false },
+  //          key          stem   xHead（keyに/xで指定）
+  crash:  { key:'a/5/x',  stem: 1  },
+  splash: { key:'g/5/x',  stem: 1  },
+  ride:   { key:'f/5/x',  stem: 1  },
+  hihat:  { key:'g/5/x',  stem: 1  },
+  tom12:  { key:'c/5',    stem:-1  },
+  tom13:  { key:'a/4',    stem:-1  },
+  snare:  { key:'b/4',    stem:-1  },
+  tom16:  { key:'g/4',    stem:-1  },
+  kick:   { key:'d/4',    stem:-1  },
 };
 
 // 音名の高さ比較用（高い音が先に来るようにソート）
@@ -1326,13 +1326,6 @@ function buildVfNotes(slots, stemDir, VF) {
         duration: '16',
         stem_direction: stemDir,
         clef: 'percussion',
-      });
-
-      // ×符頭をセット
-      evs.forEach((e, ki) => {
-        if (e.def.xHead && note.noteHeads?.[ki]) {
-          note.noteHeads[ki].glyph_code = 'noteheadXBlack';
-        }
       });
 
       notes.push(note);
