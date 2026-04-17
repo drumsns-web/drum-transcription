@@ -1238,183 +1238,266 @@ function loadDemoPattern() {
 //  PDFはjsPDFを使わず、ブラウザのprint APIで実現する
 //  （外部ライブラリ不要・依存ゼロ）
 
-// レーン別の譜面上の縦位置とノート形状
-const SCORE_LANE_DEF = {
-  //          staffPos: 五線上の位置(0=第1線, 0.5=第1間, etc.)
-  //          shape:    'x'=クロスノート  'o'=通常ノート
-  crash:  { staffPos: -2.0, shape: 'x', label: 'Cr'  },
-  splash: { staffPos: -1.5, shape: 'x', label: 'Sp'  },
-  ride:   { staffPos: -1.0, shape: 'x', label: 'Rd'  },
-  hihat:  { staffPos: -0.5, shape: 'x', label: 'HH'  },
-  tom12:  { staffPos:  0.5, shape: 'o', label: 'T12' },
-  tom13:  { staffPos:  1.0, shape: 'o', label: 'T13' },
-  tom16:  { staffPos:  1.5, shape: 'o', label: 'T16' },
-  snare:  { staffPos:  2.0, shape: 'o', label: 'Sn'  },
-  kick:   { staffPos:  3.0, shape: 'o', label: 'Kk'  },
-};
+// ── 13. SCORE EXPORT (Canvas → PNG / PDF) ───────────────────
+//
+//  標準ドラム譜レイアウト（パーカッション記譜法）
+//
+//  五線座標系:
+//    第5線(上) = staffTop
+//    第4線     = staffTop + G*1
+//    第3線     = staffTop + G*2  ← 五線中央
+//    第2線     = staffTop + G*3
+//    第1線(下) = staffTop + G*4
+//    間はその中間
+//
+//  各楽器の標準位置（G=線間隔、0=第5線）:
+//    Crash  → 第5線の1つ上（加線）    = -1G  符尾上, ×符頭
+//    Splash → 第5線の上（加線なし）   = -0.5G 符尾上, ×符頭
+//    Ride   → 第5線上                = 0G   符尾上, ×符頭
+//    HiHat  → 第5線の1つ上（加線）   = -1G  ただしCrashと区別するためシンバル左
+//             → 実際は第1線の上(加線) = -1G  符尾上, ×符頭
+//    ※ Crash と HiHat は同じ高さになりがちなので:
+//       HiHat  = -1G (加線1本上)
+//       Crash  = -2G (加線2本上)
+//       Splash = -1.5G
+//       Ride   = 第1線上 = -0.5G
+//
+//    Tom12  → 第4線                  = +1G  符尾上
+//    Tom13  → 第4間                  = +1.5G 符尾上
+//    Tom16  → 第2間                  = +2.5G 符尾上  (フロアタム)
+//    Snare  → 第3間(中央)            = +2G  符尾上
+//    Kick   → 第1間                  = +3.5G 符尾下, ●符頭
 
-// レーンの色（Canvas用）
-const SCORE_LANE_COLOR = {
-  crash: '#c8a020', splash: '#c8b800', ride: '#b08800',
-  hihat: '#448844', tom12: '#8844aa', tom13: '#6633aa',
-  tom16: '#552288', snare: '#2277bb', kick: '#bb4400',
+// staffPos: 第5線からの距離（LINE_GAPの倍数、下が正）
+const SCORE_LANE_DEF = {
+  crash:  { staffPos: -2.0, shape: 'x', stemUp: true,  label: 'Cr'    },
+  splash: { staffPos: -1.5, shape: 'x', stemUp: true,  label: 'Sp'    },
+  ride:   { staffPos: -1.0, shape: 'x', stemUp: true,  label: 'Rd'    },
+  hihat:  { staffPos: -0.5, shape: 'x', stemUp: true,  label: 'HH'    },
+  tom12:  { staffPos:  1.0, shape: 'o', stemUp: true,  label: 'T12'   },
+  tom13:  { staffPos:  1.5, shape: 'o', stemUp: true,  label: 'T13'   },
+  snare:  { staffPos:  2.0, shape: 'o', stemUp: true,  label: 'Sn'    },
+  tom16:  { staffPos:  2.5, shape: 'o', stemUp: true,  label: 'T16'   },
+  kick:   { staffPos:  3.5, shape: 'o', stemUp: false, label: 'Kk'    },
 };
 
 function buildScoreCanvas() {
   // ── レイアウト定数 ──
-  const MEASURES_PER_ROW = 4;          // 1行あたりの小節数
-  const STEPS_PER_MEASURE = 16;
+  const MPR       = 4;     // measures per row
+  const SPM       = 16;    // steps per measure
+  const G         = 8;     // 線間隔(px) ← 小さめにして密度を確保
+  const NOTE_W    = 5;     // 符頭の横半径
+  const NOTE_H    = 4;     // 符頭の縦半径
+  const STEM_LEN  = G * 3.5; // 符幹の長さ
+  const STEP_W    = 28;    // 1ステップの幅(px)
+  const LEFT      = 56;    // 左マージン
+  const RIGHT     = 16;
+  const TOP       = 52;    // タイトル領域
+  const ROW_H     = 130;   // 1行の高さ
 
-  const LEFT_MARGIN  = 64;             // 左マージン（レーンラベル用）
-  const RIGHT_MARGIN = 24;
-  const TOP_MARGIN   = 60;
-  const ROW_HEIGHT   = 180;            // 1行の高さ
-  const STAFF_Y0     = 80;             // 行内での五線中央Y
-  const LINE_GAP     = 14;             // 線間隔
-  const STEP_W       = 38;             // 1ステップの幅
-  const NOTE_R       = 5;              // ノートの半径
+  // 五線: 第5線(上)〜第1線(下)の高さ = G*4
+  // 行内での第5線のY座標（行の上部に余白を確保）
+  const STAFF_TOP_IN_ROW = 40; // 行内での第5線Y（加線2本分の余裕）
 
   const totalMeasures = state.measures;
-  const numRows       = Math.ceil(totalMeasures / MEASURES_PER_ROW);
-  const measPerRow    = MEASURES_PER_ROW;
-  const rowWidth      = LEFT_MARGIN + RIGHT_MARGIN + STEP_W * STEPS_PER_MEASURE * measPerRow;
-
-  const canvasW = rowWidth;
-  const canvasH = TOP_MARGIN + numRows * ROW_HEIGHT + 40;
+  const numRows   = Math.ceil(totalMeasures / MPR);
+  const rowW      = LEFT + RIGHT + STEP_W * SPM * MPR;
+  const canvasW   = rowW;
+  const canvasH   = TOP + numRows * ROW_H + 20;
 
   const canvas = document.createElement('canvas');
-  canvas.width  = canvasW;
-  canvas.height = canvasH;
+  // 解像度2倍（Retina対応）
+  const SCALE   = 2;
+  canvas.width  = canvasW  * SCALE;
+  canvas.height = canvasH  * SCALE;
+  canvas.style.width  = canvasW  + 'px';
+  canvas.style.height = canvasH  + 'px';
   const ctx = canvas.getContext('2d');
+  ctx.scale(SCALE, SCALE);
 
   // 背景
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, canvasW, canvasH);
 
   // タイトル
-  ctx.fillStyle = '#111';
-  ctx.font = 'bold 18px monospace';
-  ctx.fillText(`DrumScript  BPM: ${state.bpm}`, LEFT_MARGIN, 36);
+  ctx.fillStyle = '#000';
+  ctx.font = 'bold 14px serif';
+  ctx.fillText(`DrumScript   BPM: ${state.bpm}`, LEFT, 28);
 
   // ── 行ループ ──
   for (let row = 0; row < numRows; row++) {
-    const rowY     = TOP_MARGIN + row * ROW_HEIGHT;
-    const staffMidY = rowY + STAFF_Y0;
+    const rowY    = TOP + row * ROW_H;
+    // 第5線のY座標
+    const s5 = rowY + STAFF_TOP_IN_ROW;
 
-    // 五線（5本）
-    ctx.strokeStyle = '#999';
+    // ── 五線描画 ──
+    ctx.strokeStyle = '#000';
     ctx.lineWidth   = 0.8;
     for (let l = 0; l < 5; l++) {
-      const ly = staffMidY + (l - 2) * LINE_GAP;
+      const ly = s5 + l * G;
       ctx.beginPath();
-      ctx.moveTo(LEFT_MARGIN, ly);
-      ctx.lineTo(canvasW - RIGHT_MARGIN, ly);
+      ctx.moveTo(LEFT, ly);
+      ctx.lineTo(canvasW - RIGHT, ly);
       ctx.stroke();
     }
 
-    // キックライン（五線の下、独立した1本線）
-    const kickY = staffMidY + SCORE_LANE_DEF.kick.staffPos * LINE_GAP;
-    ctx.strokeStyle = '#ccc';
-    ctx.lineWidth   = 0.6;
+    // ── パーカッション記号（行頭）──
+    // 縦2本線のパーカッション譜記号
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth   = 1;
     ctx.beginPath();
-    ctx.moveTo(LEFT_MARGIN, kickY);
-    ctx.lineTo(canvasW - RIGHT_MARGIN, kickY);
+    ctx.moveTo(LEFT,      s5);
+    ctx.lineTo(LEFT,      s5 + 4 * G);
     ctx.stroke();
+    ctx.fillStyle = '#000';
+    ctx.fillRect(LEFT + 2, s5, 4, 4 * G);
 
-    // 各小節のバーライン
-    for (let mi = 0; mi <= measPerRow; mi++) {
-      const bx = LEFT_MARGIN + mi * STEP_W * STEPS_PER_MEASURE;
-      ctx.strokeStyle = mi === 0 ? '#333' : '#aaa';
-      ctx.lineWidth   = mi === 0 ? 1.5 : 0.8;
+    // ── 小節線・拍線 ──
+    const firstMeas = row * MPR;
+    for (let mi = 0; mi <= MPR; mi++) {
+      const mIdx = firstMeas + mi;
+      const bx   = LEFT + mi * STEP_W * SPM;
+      const isLast = mi === MPR || mIdx >= totalMeasures;
+
+      // 小節線（五線の高さ分）
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth   = isLast ? 1.5 : 0.8;
       ctx.beginPath();
-      ctx.moveTo(bx, staffMidY - 2 * LINE_GAP);
-      ctx.lineTo(bx, staffMidY + 2 * LINE_GAP);
+      ctx.moveTo(bx, s5);
+      ctx.lineTo(bx, s5 + 4 * G);
       ctx.stroke();
-      // 小節番号
-      const mIdx = row * measPerRow + mi;
-      if (mi < measPerRow && mIdx < totalMeasures) {
-        ctx.fillStyle = '#999';
-        ctx.font      = '10px monospace';
-        ctx.fillText(`M${mIdx + 1}`, bx + 4, rowY + STAFF_Y0 - 2 * LINE_GAP - 6);
+
+      if (mi < MPR && mIdx < totalMeasures) {
+        // 小節番号
+        ctx.fillStyle = '#555';
+        ctx.font      = '8px sans-serif';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${mIdx + 1}`, bx + 2, s5 - 2);
+
+        // 拍線（薄め）
+        for (let beat = 1; beat < 4; beat++) {
+          const px = bx + beat * 4 * STEP_W;
+          ctx.strokeStyle = '#bbb';
+          ctx.lineWidth   = 0.5;
+          ctx.beginPath();
+          ctx.moveTo(px, s5);
+          ctx.lineTo(px, s5 + 4 * G);
+          ctx.stroke();
+        }
       }
     }
 
-    // 拍線（ビートごと：4ステップ = 1拍）
-    for (let mi = 0; mi < measPerRow; mi++) {
-      for (let beat = 1; beat < 4; beat++) {
-        const bx = LEFT_MARGIN + (mi * STEPS_PER_MEASURE + beat * 4) * STEP_W;
-        ctx.strokeStyle = '#ddd';
-        ctx.lineWidth   = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(bx, staffMidY - 2 * LINE_GAP);
-        ctx.lineTo(bx, staffMidY + 2 * LINE_GAP);
-        ctx.stroke();
-      }
-    }
-
-    // レーンラベル（左端）
-    LANES.forEach(lane => {
-      const def  = SCORE_LANE_DEF[lane.id];
-      if (!def) return;
-      const noteY = staffMidY + def.staffPos * LINE_GAP;
-      ctx.fillStyle = '#555';
-      ctx.font      = '9px monospace';
+    // ── レーンラベル（最初の行のみ左端に）──
+    if (row === 0) {
       ctx.textAlign = 'right';
-      ctx.fillText(def.label, LEFT_MARGIN - 6, noteY + 3);
+      ctx.font      = '7px monospace';
+      LANES.forEach(lane => {
+        const def  = SCORE_LANE_DEF[lane.id];
+        if (!def) return;
+        const ny = s5 + def.staffPos * G;
+        ctx.fillStyle = '#777';
+        ctx.fillText(def.label, LEFT - 4, ny + 3);
+      });
       ctx.textAlign = 'left';
-    });
+    }
+
+    // ── 加線（音符がある位置に必要なら描画）──
+    // 五線外（staffPos < 0 または > 4）の音符に加線を引く
+    // ここでは必要な位置を事前に計算して描画
+    function drawLedgerLine(noteX, staffPos) {
+      // 五線外の整数・半整数位置に加線が必要
+      if (staffPos >= 0 && staffPos <= 4) return; // 五線内は不要
+      // 加線が必要な線の位置を列挙
+      let linePositions = [];
+      if (staffPos < 0) {
+        // 五線の上
+        for (let p = -1; p >= Math.floor(staffPos); p--) {
+          // 線は整数位置（0,-1,-2...）
+          if (Number.isInteger(p) || Math.abs(p % 1) < 0.01) linePositions.push(p);
+        }
+      } else {
+        // 五線の下
+        for (let p = 5; p <= Math.ceil(staffPos); p++) {
+          if (Number.isInteger(p)) linePositions.push(p);
+        }
+      }
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth   = 0.8;
+      linePositions.forEach(lp => {
+        const ly = s5 + lp * G;
+        ctx.beginPath();
+        ctx.moveTo(noteX - NOTE_W - 2, ly);
+        ctx.lineTo(noteX + NOTE_W + 2, ly);
+        ctx.stroke();
+      });
+    }
 
     // ── ノート描画 ──
-    for (let mi = 0; mi < measPerRow; mi++) {
-      const mIdx = row * measPerRow + mi;
+    for (let mi = 0; mi < MPR; mi++) {
+      const mIdx = firstMeas + mi;
       if (mIdx >= totalMeasures) break;
 
-      for (let s = 0; s < STEPS_PER_MEASURE; s++) {
-        const globalIdx = mIdx * STEPS_PER_MEASURE + s;
-        const noteX     = LEFT_MARGIN + (mi * STEPS_PER_MEASURE + s) * STEP_W + STEP_W / 2;
+      for (let s = 0; s < SPM; s++) {
+        const gIdx  = mIdx * SPM + s;
+        const noteX = LEFT + (mi * SPM + s) * STEP_W + STEP_W / 2;
 
         LANES.forEach(lane => {
-          const step = getStep(lane.id, globalIdx);
+          const step = getStep(lane.id, gIdx);
           if (!step.active) return;
 
-          const def   = SCORE_LANE_DEF[lane.id];
+          const def = SCORE_LANE_DEF[lane.id];
           if (!def) return;
-          const noteY = staffMidY + def.staffPos * LINE_GAP;
-          const color = SCORE_LANE_COLOR[lane.id] ?? '#333';
 
-          ctx.fillStyle   = color;
-          ctx.strokeStyle = color;
-          ctx.lineWidth   = 1.5;
+          const noteY = s5 + def.staffPos * G;
+
+          // 加線
+          drawLedgerLine(noteX, def.staffPos);
+
+          ctx.fillStyle   = '#000';
+          ctx.strokeStyle = '#000';
 
           if (def.shape === 'x') {
-            // クロスノート（シンバル系）
+            // ── ×符頭（シンバル系）──
+            ctx.lineWidth = 1.4;
             ctx.beginPath();
-            ctx.moveTo(noteX - NOTE_R, noteY - NOTE_R);
-            ctx.lineTo(noteX + NOTE_R, noteY + NOTE_R);
-            ctx.moveTo(noteX + NOTE_R, noteY - NOTE_R);
-            ctx.lineTo(noteX - NOTE_R, noteY + NOTE_R);
+            ctx.moveTo(noteX - NOTE_W * 0.8, noteY - NOTE_H * 0.8);
+            ctx.lineTo(noteX + NOTE_W * 0.8, noteY + NOTE_H * 0.8);
+            ctx.moveTo(noteX + NOTE_W * 0.8, noteY - NOTE_H * 0.8);
+            ctx.lineTo(noteX - NOTE_W * 0.8, noteY + NOTE_H * 0.8);
             ctx.stroke();
           } else {
-            // 通常ノート（タム・スネア・キック）
+            // ── 楕円符頭（タム・スネア・キック）──
+            ctx.lineWidth = 0.8;
             ctx.beginPath();
-            ctx.ellipse(noteX, noteY, NOTE_R, NOTE_R * 0.8, 0, 0, Math.PI * 2);
+            // 少し斜めに傾けた楕円（本物の譜面らしさ）
+            ctx.ellipse(noteX, noteY, NOTE_W, NOTE_H, -0.2, 0, Math.PI * 2);
             ctx.fill();
           }
 
-          // ステム（符幹）：五線の範囲内なら上向き、キックは下向き
-          const stemDir   = lane.id === 'kick' ? 1 : -1;
-          const stemLen   = LINE_GAP * 2.5;
-          ctx.strokeStyle = color;
+          // ── 符幹 ──
           ctx.lineWidth   = 1;
-          ctx.beginPath();
-          ctx.moveTo(noteX + (def.shape === 'x' ? 0 : NOTE_R), noteY);
-          ctx.lineTo(noteX + (def.shape === 'x' ? 0 : NOTE_R), noteY + stemDir * stemLen);
-          ctx.stroke();
+          ctx.strokeStyle = '#000';
+          if (def.stemUp) {
+            // 上向き：符頭右端から上へ
+            const stemX = noteX + (def.shape === 'x' ? 0 : NOTE_W - 0.5);
+            ctx.beginPath();
+            ctx.moveTo(stemX, noteY);
+            ctx.lineTo(stemX, noteY - STEM_LEN);
+            ctx.stroke();
+          } else {
+            // 下向き（キック）：符頭左端から下へ
+            const stemX = noteX - (def.shape === 'x' ? 0 : NOTE_W - 0.5);
+            ctx.beginPath();
+            ctx.moveTo(stemX, noteY);
+            ctx.lineTo(stemX, noteY + STEM_LEN);
+            ctx.stroke();
+          }
         });
       }
     }
   }
 
+  ctx.textAlign = 'left';
   return canvas;
 }
 
@@ -1430,33 +1513,28 @@ function exportPNG() {
 function exportPDF() {
   const canvas  = buildScoreCanvas();
   const dataUrl = canvas.toDataURL('image/png');
+  const w = canvas.width  / 2; // SCALE=2で割る
+  const h = canvas.height / 2;
 
-  // ブラウザのprint機能を使ってPDF化（jsPDF不要）
   const win = window.open('', '_blank');
   if (!win) { alert('ポップアップをブロックしないでください'); return; }
-
-  const w = canvas.width;
-  const h = canvas.height;
 
   win.document.write(`<!DOCTYPE html>
 <html><head>
 <meta charset="UTF-8">
 <title>DrumScript Score</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #fff; }
-  img  { width: 100%; max-width: ${w}px; display: block; margin: 0 auto; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#fff; }
+  img  { width:100%; display:block; }
   @media print {
-    @page { size: A4 landscape; margin: 10mm; }
-    body  { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
-    img   { width: 100%; max-width: none; }
+    @page { size:A4 landscape; margin:8mm; }
+    body  { print-color-adjust:exact; -webkit-print-color-adjust:exact; }
   }
 </style>
 </head><body>
 <img src="${dataUrl}">
-<script>
-  window.onload = () => { window.print(); };
-<\/script>
+<script>window.onload=()=>window.print();<\/script>
 </body></html>`);
   win.document.close();
   showToast('📄 印刷ダイアログを開きました（PDFで保存できます）');
