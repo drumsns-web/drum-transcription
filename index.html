@@ -302,6 +302,11 @@ html, body {
 .tool-btn.active { background: #1e1e18; border-color: var(--accent); color: var(--accent); }
 .tool-btn.danger { color: var(--red); }
 .tool-btn.danger:hover { border-color: var(--red); }
+.toolbar-sep {
+  width: 1px; height: 24px; background: var(--border); margin: 0 4px; flex-shrink: 0;
+}
+.export-btn { color: var(--accent); border-color: #3a3520; }
+.export-btn:hover { border-color: var(--accent); background: #1e1e14; }
 
 @media (max-width: 480px) {
   :root { --step-w: 32px; --step-h: 36px; --lane-w: 58px; }
@@ -376,6 +381,9 @@ html, body {
     <button id="btn-erase" class="tool-btn"         data-mode="erase">✕ 消去</button>
     <button id="btn-clear" class="tool-btn danger">🗑 全消去</button>
     <button id="btn-demo"  class="tool-btn">▣ デモ</button>
+    <div class="toolbar-sep"></div>
+    <button id="btn-png"  class="tool-btn export-btn">🖼 PNG</button>
+    <button id="btn-pdf"  class="tool-btn export-btn">📄 PDF</button>
   </footer>
 
 <script>
@@ -386,15 +394,15 @@ html, body {
 // ── 1. CONSTANTS & STATE ────────────────────────────────────
 
 const LANES = [
-  { id: 'kick',   name: 'KICK',    color: '#e07a40' },
-  { id: 'snare',  name: 'SNARE',   color: '#5fa8e0' },
+  { id: 'crash',  name: 'CRASH',   color: '#e5c94a' },
+  { id: 'splash', name: 'SPLASH',  color: '#f0e080' },
+  { id: 'ride',   name: 'RIDE',    color: '#d4a820' },
   { id: 'hihat',  name: 'H.HAT',   color: '#88cc88' },
   { id: 'tom12',  name: 'TOM 12"', color: '#c678dd' },
   { id: 'tom13',  name: 'TOM 13"', color: '#a55fc0' },
   { id: 'tom16',  name: 'TOM 16"', color: '#7e45a0' },
-  { id: 'crash',  name: 'CRASH',   color: '#e5c94a' },
-  { id: 'ride',   name: 'RIDE',    color: '#d4a820' },
-  { id: 'splash', name: 'SPLASH',  color: '#f0e080' },
+  { id: 'snare',  name: 'SNARE',   color: '#5fa8e0' },
+  { id: 'kick',   name: 'KICK',    color: '#e07a40' },
 ];
 
 const STEPS_PER_MEASURE = 16;
@@ -762,286 +770,210 @@ function applyPointerToCell(cell) {
 }
 
 // ── 7. SYNTH SAMPLES ────────────────────────────────────────
-//
-//  各楽器をWeb Audio APIでオフラインレンダリングして
-//  AudioBufferに焼き付ける。再生時はBufferSourceで即時発音。
-//
-//  設計方針:
-//   - KICK  : サイン波 × ピッチエンベロープ + 歪み + ローパス → 低域ズンとした打感
-//   - SNARE : 基音(2sine) + バンドパスノイズ + アンプエンベロープ
-//   - HIHAT : メタリックな倍音6本 + ハイパスノイズ (closed/open 共通関数)
-//   - TOM   : ピッチエンベロープ付きサイン × サイズ別ピッチ
-//   - CRASH : 多倍音ノイズ + 長いディケイ
-//   - RIDE  : 金属的倍音 + 短いping
-//   - SPLASH: 高域ノイズ + 極速ディケイ
 
 const synthBufs = {};
 
-// 各楽器の再生ゲイン(音量バランス調整)
+// 楽器別ゲイン（最終音量バランス）
 const LANE_GAIN = {
-  kick:   1.4,
-  snare:  1.0,
-  hihat:  0.7,
-  tom12:  1.0,
-  tom13:  1.0,
-  tom16:  1.1,
-  crash:  0.8,
-  ride:   0.75,
-  splash: 0.65,
+  kick:   1.0,
+  snare:  0.85,
+  hihat:  0.6,
+  tom12:  0.85,
+  tom13:  0.85,
+  tom16:  0.9,
+  crash:  0.7,
+  ride:   0.65,
+  splash: 0.55,
 };
 
-async function makeSynthBufs() {
-  const sr = audioCtx.sampleRate;
+// オフラインレンダリング共通ヘルパー
+// fn(data, sr, length) でバッファを直接書き込む
+function renderSynth(dur, fn) {
+  const sr     = audioCtx.sampleRate;
+  const len    = Math.ceil(sr * dur);
+  const buf    = audioCtx.createBuffer(1, len, sr);
+  const data   = buf.getChannelData(0);
+  fn(data, sr, len);
 
-  // オフラインレンダリングで各楽器バッファを生成
-  async function renderOffline(dur, buildFn) {
-    const frames  = Math.ceil(sr * dur);
-    const offline = new OfflineAudioContext(1, frames, sr);
-    buildFn(offline);
-    return offline.startRendering();
+  // ピークノーマライズ（0.95 を超えないように）
+  let peak = 0;
+  for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(data[i]));
+  if (peak > 0.01) {
+    const scale = 0.95 / peak;
+    for (let i = 0; i < len; i++) data[i] *= scale;
   }
+  return buf;
+}
+
+function makeSynthBufs() {
 
   // ── KICK ──────────────────────────────────────────────────
-  // 低域サイン(ピッチドロップ) + クリック感(ノイズバースト) + 歪み
-  synthBufs.kick = await renderOffline(0.6, (ctx) => {
-    const dur = 0.6;
-    const buf = ctx.createBuffer(1, Math.ceil(sr * dur), sr);
-    const d   = buf.getChannelData(0);
-
-    for (let i = 0; i < d.length; i++) {
-      const t = i / sr;
-      // ピッチエンベロープ: 120Hz → 45Hz
-      const freq   = 45 + 75 * Math.exp(-t * 22);
-      // 位相積分でサイン波生成
-      const body   = Math.sin(2 * Math.PI * freq * t);
-      // アンプエンベロープ: パンチ感のあるアタック + ゆったりディケイ
-      const ampEnv = Math.exp(-t * 10) * (1 - Math.exp(-t * 200));
-      // クリック: 最初3msだけノイズ混入
-      const click  = t < 0.003 ? (Math.random() * 2 - 1) * 0.4 : 0;
-      // 軽い歪み(tanh)
-      const raw    = body * ampEnv + click;
-      d[i]         = Math.tanh(raw * 2.5) * 0.7;
+  // サイン波 + ピッチエンベロープ + ソフトクリップ
+  // ノイズ成分は最初2msのクリックのみ、それ以外は純粋なサイン
+  synthBufs.kick = renderSynth(0.55, (d, sr, len) => {
+    let phase = 0;
+    for (let i = 0; i < len; i++) {
+      const t   = i / sr;
+      // ピッチ: 80Hz → 40Hz（急降下）
+      const freq = 40 + 40 * Math.exp(-t * 30);
+      phase += (2 * Math.PI * freq) / sr;
+      // アンプ: 鋭いアタック + ゆっくりディケイ
+      const amp  = Math.exp(-t * 8) * (1 - Math.exp(-t * 150));
+      // クリック: 最初2msのみ、ごく控えめに
+      const click = (t < 0.002) ? (Math.random() * 2 - 1) * 0.08 : 0;
+      // ソフトクリップ（tanh）で自然な歪み
+      d[i] = Math.tanh(Math.sin(phase) * amp * 1.8) * 0.9 + click;
     }
-
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    // ローパスでサブ感強調
-    const lp = ctx.createBiquadFilter();
-    lp.type            = 'lowpass';
-    lp.frequency.value = 180;
-    lp.Q.value         = 0.8;
-    src.connect(lp);
-    lp.connect(ctx.destination);
-    src.start(0);
   });
 
   // ── SNARE ─────────────────────────────────────────────────
-  // 基音2本(180Hz+240Hz) + ホワイトノイズ(バンドパス) + クリック
-  synthBufs.snare = await renderOffline(0.35, (ctx) => {
-    const dur = 0.35;
-    const buf = ctx.createBuffer(1, Math.ceil(sr * dur), sr);
-    const d   = buf.getChannelData(0);
+  // 基音サイン（200Hz）+ スナッピー感のためのバンドパスノイズ
+  // ノイズはシードされた疑似乱数で安定させる
+  synthBufs.snare = renderSynth(0.30, (d, sr, len) => {
+    // 疑似乱数（LCG）でノイズを安定生成
+    let rng = 12345;
+    const rand = () => {
+      rng = (rng * 1664525 + 1013904223) & 0xffffffff;
+      return (rng / 0x80000000) - 1;
+    };
+    // バンドパスノイズ用の簡易一次IIR
+    let lpState = 0, hpState = 0;
+    const lpCoef = 0.15;  // ~3kHz ローパス
+    const hpCoef = 0.92;  // ~300Hz ハイパス
 
-    for (let i = 0; i < d.length; i++) {
-      const t      = i / sr;
-      const toneEnv = Math.exp(-t * 18);
-      const noiseEnv = Math.exp(-t * 14);
-      const tone   = (Math.sin(2 * Math.PI * 180 * t) * 0.5
-                    + Math.sin(2 * Math.PI * 240 * t) * 0.3) * toneEnv;
-      const noise  = (Math.random() * 2 - 1) * noiseEnv;
-      const click  = t < 0.002 ? (Math.random() * 2 - 1) * 0.5 : 0;
-      d[i]         = (tone * 0.45 + noise * 0.6 + click) * 0.85;
+    for (let i = 0; i < len; i++) {
+      const t       = i / sr;
+      const toneEnv = Math.exp(-t * 22);
+      const noiseEnv = Math.exp(-t * 16);
+
+      // 基音（200Hz + 180Hz で太さを出す）
+      const tone = (Math.sin(2 * Math.PI * 200 * t) * 0.6
+                  + Math.sin(2 * Math.PI * 180 * t) * 0.3) * toneEnv;
+
+      // ノイズをバンドパス処理（ローパス→ハイパス）
+      const raw  = rand();
+      lpState    = lpState + lpCoef * (raw - lpState);
+      hpState    = hpCoef * (hpState + lpState - (i > 0 ? d[i-1] : 0));
+      const snap  = lpState * noiseEnv * 0.9;
+
+      d[i] = tone * 0.5 + snap * 0.55;
     }
-
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    // スネアのスナッピー感: バンドパス 2kHz
-    const bp = ctx.createBiquadFilter();
-    bp.type            = 'bandpass';
-    bp.frequency.value = 2000;
-    bp.Q.value         = 0.5;
-    // ローパスで低域も残す
-    const lp = ctx.createBiquadFilter();
-    lp.type            = 'lowpass';
-    lp.frequency.value = 6000;
-
-    const gain = ctx.createGain();
-    gain.gain.value = 1.0;
-
-    src.connect(lp);
-    lp.connect(ctx.destination);
-    src.start(0);
   });
 
   // ── HIHAT (closed) ────────────────────────────────────────
-  // 金属的倍音6本 + ハイパスホワイトノイズ
-  synthBufs.hihat = await renderOffline(0.12, (ctx) => {
-    const dur = 0.12;
-    const buf = ctx.createBuffer(1, Math.ceil(sr * dur), sr);
-    const d   = buf.getChannelData(0);
-    // シンバルらしい非整数倍音
-    const freqs = [3600, 5400, 7200, 8100, 10200, 12600];
-
-    for (let i = 0; i < d.length; i++) {
+  // 金属的な倍音のみ、ノイズ不使用
+  // 非整数倍音4本をデチューンして金属質感を出す
+  synthBufs.hihat = renderSynth(0.10, (d, sr, len) => {
+    // 実際のシンバル倍音比（非整数）
+    const partials = [
+      { f: 3700, a: 1.0 },
+      { f: 5503, a: 0.6 },
+      { f: 7129, a: 0.4 },
+      { f: 9200, a: 0.25 },
+    ];
+    for (let i = 0; i < len; i++) {
       const t   = i / sr;
-      const env = Math.exp(-t * 55);
+      const env = Math.exp(-t * 60);  // 素早くディケイ
       let v = 0;
-      freqs.forEach((f, j) => {
-        v += Math.sin(2 * Math.PI * f * t) * (0.3 - j * 0.04);
-      });
-      v += (Math.random() * 2 - 1) * 0.4;
-      d[i] = env * v * 0.45;
+      for (const p of partials) {
+        v += Math.sin(2 * Math.PI * p.f * t) * p.a;
+      }
+      d[i] = v * env;
     }
-
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const hp = ctx.createBiquadFilter();
-    hp.type            = 'highpass';
-    hp.frequency.value = 7000;
-    src.connect(hp);
-    hp.connect(ctx.destination);
-    src.start(0);
   });
 
-  // ── TOM 共通関数 ──────────────────────────────────────────
-  async function makeTom(rootHz, decayMul, dur) {
-    return renderOffline(dur, (ctx) => {
-      const buf = ctx.createBuffer(1, Math.ceil(sr * dur), sr);
-      const d   = buf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) {
+  // ── TOM 共通 ──────────────────────────────────────────────
+  function makeTom(rootHz, decay, dur) {
+    return renderSynth(dur, (d, sr, len) => {
+      let phase = 0;
+      for (let i = 0; i < len; i++) {
         const t    = i / sr;
-        // ピッチエンベロープ
-        const freq = rootHz * (1 + 0.6 * Math.exp(-t * 40));
-        const body = Math.sin(2 * Math.PI * freq * t);
-        // 2倍音で胴鳴り感
-        const body2 = Math.sin(2 * Math.PI * freq * 2.1 * t) * 0.2;
-        const env  = Math.exp(-t * decayMul) * (1 - Math.exp(-t * 300));
-        const click = t < 0.003 ? (Math.random() * 2 - 1) * 0.15 : 0;
-        d[i] = (body + body2) * env * 0.75 + click;
+        // ピッチエンベロープ（根音の1.5倍から落ちる）
+        const freq = rootHz * (1 + 0.5 * Math.exp(-t * 35));
+        phase += (2 * Math.PI * freq) / sr;
+        // アンプ
+        const amp  = Math.exp(-t * decay) * (1 - Math.exp(-t * 200));
+        // 基音 + 2倍音で胴の鳴り感
+        d[i] = (Math.sin(phase) * 0.8 + Math.sin(phase * 2.0) * 0.15) * amp;
       }
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      const lp = ctx.createBiquadFilter();
-      lp.type            = 'lowpass';
-      lp.frequency.value = rootHz * 6;
-      lp.Q.value         = 0.7;
-      src.connect(lp);
-      lp.connect(ctx.destination);
-      src.start(0);
     });
   }
 
-  synthBufs.tom12 = await makeTom(220, 11, 0.40); // 12" : 高め
-  synthBufs.tom13 = await makeTom(160, 9,  0.45); // 13" : 中
-  synthBufs.tom16 = await makeTom(95,  7,  0.55); // 16" : フロアタム・低め
+  synthBufs.tom12 = makeTom(220, 10, 0.38);  // 12": 高め
+  synthBufs.tom13 = makeTom(160,  8, 0.42);  // 13": 中
+  synthBufs.tom16 = makeTom( 95,  6, 0.52);  // 16": フロアタム
 
   // ── CRASH ─────────────────────────────────────────────────
-  // 多倍音ノイズ + 長いリリース + ローミッドの膨らみ
-  synthBufs.crash = await renderOffline(1.8, (ctx) => {
-    const dur = 1.8;
-    const buf = ctx.createBuffer(1, Math.ceil(sr * dur), sr);
-    const d   = buf.getChannelData(0);
-    const freqs = [2100, 3150, 4725, 6300, 8400, 11200, 14700];
-
-    for (let i = 0; i < d.length; i++) {
+  // 非整数倍音のみ（ノイズなし）で金属感、長いディケイ
+  synthBufs.crash = renderSynth(2.0, (d, sr, len) => {
+    const partials = [
+      { f: 1800, a: 1.0 },
+      { f: 2763, a: 0.7 },
+      { f: 4050, a: 0.55 },
+      { f: 5832, a: 0.4 },
+      { f: 8100, a: 0.28 },
+      { f: 11340, a: 0.18 },
+    ];
+    for (let i = 0; i < len; i++) {
       const t   = i / sr;
-      const env = Math.exp(-t * 3.2);
-      let v = (Math.random() * 2 - 1) * 0.7;
-      freqs.forEach((f, j) => {
-        v += Math.sin(2 * Math.PI * f * t + Math.random()) * (0.25 - j * 0.03);
-      });
-      d[i] = env * v * 0.55;
+      const env = Math.exp(-t * 2.8);
+      let v = 0;
+      for (const p of partials) {
+        v += Math.sin(2 * Math.PI * p.f * t) * p.a;
+      }
+      d[i] = v * env;
     }
-
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const hp = ctx.createBiquadFilter();
-    hp.type            = 'highpass';
-    hp.frequency.value = 1800;
-    src.connect(hp);
-    hp.connect(ctx.destination);
-    src.start(0);
   });
 
   // ── RIDE ──────────────────────────────────────────────────
-  // 金属的倍音の「ピーン」感 + 短めのノイズ
-  synthBufs.ride = await renderOffline(1.2, (ctx) => {
-    const dur = 1.2;
-    const buf = ctx.createBuffer(1, Math.ceil(sr * dur), sr);
-    const d   = buf.getChannelData(0);
-    const freqs = [2350, 3525, 5290, 7050, 9400];
-
-    for (let i = 0; i < d.length; i++) {
-      const t    = i / sr;
-      const envL = Math.exp(-t * 4);   // 倍音: 長め
-      const envN = Math.exp(-t * 18);  // ノイズ: 短め
+  // クラッシュより高域・倍音を締めてピンとした音に
+  synthBufs.ride = renderSynth(1.4, (d, sr, len) => {
+    const partials = [
+      { f: 2350, a: 1.0 },
+      { f: 3700, a: 0.65 },
+      { f: 5520, a: 0.45 },
+      { f: 7600, a: 0.28 },
+      { f: 10200, a: 0.15 },
+    ];
+    for (let i = 0; i < len; i++) {
+      const t   = i / sr;
+      const env = Math.exp(-t * 4.0);
       let v = 0;
-      freqs.forEach((f, j) => {
-        v += Math.sin(2 * Math.PI * f * t) * (0.35 - j * 0.05) * envL;
-      });
-      v += (Math.random() * 2 - 1) * 0.2 * envN;
-      d[i] = v * 0.6;
+      for (const p of partials) {
+        v += Math.sin(2 * Math.PI * p.f * t) * p.a;
+      }
+      d[i] = v * env;
     }
-
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const hp = ctx.createBiquadFilter();
-    hp.type            = 'highpass';
-    hp.frequency.value = 2000;
-    src.connect(hp);
-    hp.connect(ctx.destination);
-    src.start(0);
   });
 
   // ── SPLASH ────────────────────────────────────────────────
-  // クラッシュより高域・極速ディケイ
-  synthBufs.splash = await renderOffline(0.4, (ctx) => {
-    const dur = 0.4;
-    const buf = ctx.createBuffer(1, Math.ceil(sr * dur), sr);
-    const d   = buf.getChannelData(0);
-    const freqs = [4200, 6300, 8400, 10500, 13000];
-
-    for (let i = 0; i < d.length; i++) {
+  // 高域倍音 + 極速ディケイ
+  synthBufs.splash = renderSynth(0.35, (d, sr, len) => {
+    const partials = [
+      { f: 4200, a: 1.0 },
+      { f: 6300, a: 0.7 },
+      { f: 9100, a: 0.45 },
+      { f: 12500, a: 0.25 },
+    ];
+    for (let i = 0; i < len; i++) {
       const t   = i / sr;
-      const env = Math.exp(-t * 14);
-      let v = (Math.random() * 2 - 1) * 0.6;
-      freqs.forEach((f, j) => {
-        v += Math.sin(2 * Math.PI * f * t) * (0.2 - j * 0.03);
-      });
-      d[i] = env * v * 0.5;
+      const env = Math.exp(-t * 15);
+      let v = 0;
+      for (const p of partials) {
+        v += Math.sin(2 * Math.PI * p.f * t) * p.a;
+      }
+      d[i] = v * env;
     }
-
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const hp = ctx.createBiquadFilter();
-    hp.type            = 'highpass';
-    hp.frequency.value = 3500;
-    src.connect(hp);
-    hp.connect(ctx.destination);
-    src.start(0);
   });
 }
 
-function playSample(buf, time) {
-  if (!buf) return;
-  const laneId = Object.keys(synthBufs).find(k => synthBufs[k] === buf) ?? 'kick';
-  const src = audioCtx.createBufferSource();
-  src.buffer = buf;
-  const g = audioCtx.createGain();
-  g.gain.value = LANE_GAIN[laneId] ?? 1.0;
-  src.connect(g);
-  g.connect(audioCtx.destination);
-  src.start(time);
-}
-
-// laneId直接指定版（プレイヤーから呼ぶ）
 function playSampleById(laneId, time) {
   const buf = synthBufs[laneId];
   if (!buf) return;
   const src = audioCtx.createBufferSource();
   src.buffer = buf;
   const g = audioCtx.createGain();
-  g.gain.value = LANE_GAIN[laneId] ?? 1.0;
+  g.gain.value = LANE_GAIN[laneId] ?? 0.8;
   src.connect(g);
   g.connect(audioCtx.destination);
   src.start(time);
@@ -1262,6 +1194,10 @@ function wireEvents() {
     e.target.value = '';
   });
 
+  // PNG / PDF export
+  document.getElementById('btn-png').addEventListener('click', exportPNG);
+  document.getElementById('btn-pdf').addEventListener('click', exportPDF);
+
   document.addEventListener('contextmenu', e => e.preventDefault());
 
   // Sync ruler scroll
@@ -1290,14 +1226,249 @@ function loadDemoPattern() {
   }
 }
 
+// ── 13. SCORE EXPORT (Canvas → PNG / PDF) ───────────────────
+//
+//  ドラム譜をCanvasに描画する。
+//  レイアウト:
+//    - 1行 = 1小節 = 16ステップ
+//    - 縦軸 = レーン（上がシンバル、下がキック）
+//    - ヒット = ●（通常音符）または ✕（シンバル系）
+//    - 五線ではなく、ドラム譜慣習の「1本線ペルカッション譜」スタイル
+//
+//  PDFはjsPDFを使わず、ブラウザのprint APIで実現する
+//  （外部ライブラリ不要・依存ゼロ）
+
+// レーン別の譜面上の縦位置とノート形状
+const SCORE_LANE_DEF = {
+  //          staffPos: 五線上の位置(0=第1線, 0.5=第1間, etc.)
+  //          shape:    'x'=クロスノート  'o'=通常ノート
+  crash:  { staffPos: -2.0, shape: 'x', label: 'Cr'  },
+  splash: { staffPos: -1.5, shape: 'x', label: 'Sp'  },
+  ride:   { staffPos: -1.0, shape: 'x', label: 'Rd'  },
+  hihat:  { staffPos: -0.5, shape: 'x', label: 'HH'  },
+  tom12:  { staffPos:  0.5, shape: 'o', label: 'T12' },
+  tom13:  { staffPos:  1.0, shape: 'o', label: 'T13' },
+  tom16:  { staffPos:  1.5, shape: 'o', label: 'T16' },
+  snare:  { staffPos:  2.0, shape: 'o', label: 'Sn'  },
+  kick:   { staffPos:  3.0, shape: 'o', label: 'Kk'  },
+};
+
+// レーンの色（Canvas用）
+const SCORE_LANE_COLOR = {
+  crash: '#c8a020', splash: '#c8b800', ride: '#b08800',
+  hihat: '#448844', tom12: '#8844aa', tom13: '#6633aa',
+  tom16: '#552288', snare: '#2277bb', kick: '#bb4400',
+};
+
+function buildScoreCanvas() {
+  // ── レイアウト定数 ──
+  const MEASURES_PER_ROW = 4;          // 1行あたりの小節数
+  const STEPS_PER_MEASURE = 16;
+
+  const LEFT_MARGIN  = 64;             // 左マージン（レーンラベル用）
+  const RIGHT_MARGIN = 24;
+  const TOP_MARGIN   = 60;
+  const ROW_HEIGHT   = 180;            // 1行の高さ
+  const STAFF_Y0     = 80;             // 行内での五線中央Y
+  const LINE_GAP     = 14;             // 線間隔
+  const STEP_W       = 38;             // 1ステップの幅
+  const NOTE_R       = 5;              // ノートの半径
+
+  const totalMeasures = state.measures;
+  const numRows       = Math.ceil(totalMeasures / MEASURES_PER_ROW);
+  const measPerRow    = MEASURES_PER_ROW;
+  const rowWidth      = LEFT_MARGIN + RIGHT_MARGIN + STEP_W * STEPS_PER_MEASURE * measPerRow;
+
+  const canvasW = rowWidth;
+  const canvasH = TOP_MARGIN + numRows * ROW_HEIGHT + 40;
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = canvasW;
+  canvas.height = canvasH;
+  const ctx = canvas.getContext('2d');
+
+  // 背景
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  // タイトル
+  ctx.fillStyle = '#111';
+  ctx.font = 'bold 18px monospace';
+  ctx.fillText(`DrumScript  BPM: ${state.bpm}`, LEFT_MARGIN, 36);
+
+  // ── 行ループ ──
+  for (let row = 0; row < numRows; row++) {
+    const rowY     = TOP_MARGIN + row * ROW_HEIGHT;
+    const staffMidY = rowY + STAFF_Y0;
+
+    // 五線（5本）
+    ctx.strokeStyle = '#999';
+    ctx.lineWidth   = 0.8;
+    for (let l = 0; l < 5; l++) {
+      const ly = staffMidY + (l - 2) * LINE_GAP;
+      ctx.beginPath();
+      ctx.moveTo(LEFT_MARGIN, ly);
+      ctx.lineTo(canvasW - RIGHT_MARGIN, ly);
+      ctx.stroke();
+    }
+
+    // キックライン（五線の下、独立した1本線）
+    const kickY = staffMidY + SCORE_LANE_DEF.kick.staffPos * LINE_GAP;
+    ctx.strokeStyle = '#ccc';
+    ctx.lineWidth   = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(LEFT_MARGIN, kickY);
+    ctx.lineTo(canvasW - RIGHT_MARGIN, kickY);
+    ctx.stroke();
+
+    // 各小節のバーライン
+    for (let mi = 0; mi <= measPerRow; mi++) {
+      const bx = LEFT_MARGIN + mi * STEP_W * STEPS_PER_MEASURE;
+      ctx.strokeStyle = mi === 0 ? '#333' : '#aaa';
+      ctx.lineWidth   = mi === 0 ? 1.5 : 0.8;
+      ctx.beginPath();
+      ctx.moveTo(bx, staffMidY - 2 * LINE_GAP);
+      ctx.lineTo(bx, staffMidY + 2 * LINE_GAP);
+      ctx.stroke();
+      // 小節番号
+      const mIdx = row * measPerRow + mi;
+      if (mi < measPerRow && mIdx < totalMeasures) {
+        ctx.fillStyle = '#999';
+        ctx.font      = '10px monospace';
+        ctx.fillText(`M${mIdx + 1}`, bx + 4, rowY + STAFF_Y0 - 2 * LINE_GAP - 6);
+      }
+    }
+
+    // 拍線（ビートごと：4ステップ = 1拍）
+    for (let mi = 0; mi < measPerRow; mi++) {
+      for (let beat = 1; beat < 4; beat++) {
+        const bx = LEFT_MARGIN + (mi * STEPS_PER_MEASURE + beat * 4) * STEP_W;
+        ctx.strokeStyle = '#ddd';
+        ctx.lineWidth   = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(bx, staffMidY - 2 * LINE_GAP);
+        ctx.lineTo(bx, staffMidY + 2 * LINE_GAP);
+        ctx.stroke();
+      }
+    }
+
+    // レーンラベル（左端）
+    LANES.forEach(lane => {
+      const def  = SCORE_LANE_DEF[lane.id];
+      if (!def) return;
+      const noteY = staffMidY + def.staffPos * LINE_GAP;
+      ctx.fillStyle = '#555';
+      ctx.font      = '9px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(def.label, LEFT_MARGIN - 6, noteY + 3);
+      ctx.textAlign = 'left';
+    });
+
+    // ── ノート描画 ──
+    for (let mi = 0; mi < measPerRow; mi++) {
+      const mIdx = row * measPerRow + mi;
+      if (mIdx >= totalMeasures) break;
+
+      for (let s = 0; s < STEPS_PER_MEASURE; s++) {
+        const globalIdx = mIdx * STEPS_PER_MEASURE + s;
+        const noteX     = LEFT_MARGIN + (mi * STEPS_PER_MEASURE + s) * STEP_W + STEP_W / 2;
+
+        LANES.forEach(lane => {
+          const step = getStep(lane.id, globalIdx);
+          if (!step.active) return;
+
+          const def   = SCORE_LANE_DEF[lane.id];
+          if (!def) return;
+          const noteY = staffMidY + def.staffPos * LINE_GAP;
+          const color = SCORE_LANE_COLOR[lane.id] ?? '#333';
+
+          ctx.fillStyle   = color;
+          ctx.strokeStyle = color;
+          ctx.lineWidth   = 1.5;
+
+          if (def.shape === 'x') {
+            // クロスノート（シンバル系）
+            ctx.beginPath();
+            ctx.moveTo(noteX - NOTE_R, noteY - NOTE_R);
+            ctx.lineTo(noteX + NOTE_R, noteY + NOTE_R);
+            ctx.moveTo(noteX + NOTE_R, noteY - NOTE_R);
+            ctx.lineTo(noteX - NOTE_R, noteY + NOTE_R);
+            ctx.stroke();
+          } else {
+            // 通常ノート（タム・スネア・キック）
+            ctx.beginPath();
+            ctx.ellipse(noteX, noteY, NOTE_R, NOTE_R * 0.8, 0, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // ステム（符幹）：五線の範囲内なら上向き、キックは下向き
+          const stemDir   = lane.id === 'kick' ? 1 : -1;
+          const stemLen   = LINE_GAP * 2.5;
+          ctx.strokeStyle = color;
+          ctx.lineWidth   = 1;
+          ctx.beginPath();
+          ctx.moveTo(noteX + (def.shape === 'x' ? 0 : NOTE_R), noteY);
+          ctx.lineTo(noteX + (def.shape === 'x' ? 0 : NOTE_R), noteY + stemDir * stemLen);
+          ctx.stroke();
+        });
+      }
+    }
+  }
+
+  return canvas;
+}
+
+function exportPNG() {
+  const canvas = buildScoreCanvas();
+  const a      = document.createElement('a');
+  a.href       = canvas.toDataURL('image/png');
+  a.download   = `drumscript_score_${Date.now()}.png`;
+  a.click();
+  showToast('🖼 PNG を保存しました');
+}
+
+function exportPDF() {
+  const canvas  = buildScoreCanvas();
+  const dataUrl = canvas.toDataURL('image/png');
+
+  // ブラウザのprint機能を使ってPDF化（jsPDF不要）
+  const win = window.open('', '_blank');
+  if (!win) { alert('ポップアップをブロックしないでください'); return; }
+
+  const w = canvas.width;
+  const h = canvas.height;
+
+  win.document.write(`<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<title>DrumScript Score</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #fff; }
+  img  { width: 100%; max-width: ${w}px; display: block; margin: 0 auto; }
+  @media print {
+    @page { size: A4 landscape; margin: 10mm; }
+    body  { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    img   { width: 100%; max-width: none; }
+  }
+</style>
+</head><body>
+<img src="${dataUrl}">
+<script>
+  window.onload = () => { window.print(); };
+<\/script>
+</body></html>`);
+  win.document.close();
+  showToast('📄 印刷ダイアログを開きました（PDFで保存できます）');
+}
+
 // ── BOOT ─────────────────────────────────────────────────────
 
 async function boot() {
   initSteps(state.measures);
   loadDemoPattern();
   renderGrid();
-  // シンセバッファをオフラインレンダリング（非同期）
-  await makeSynthBufs();
+  makeSynthBufs();   // 同期処理に変更
   wireEvents();
 }
 
