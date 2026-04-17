@@ -1255,17 +1255,17 @@ function loadDemoPattern() {
 
 // VexFlowドラムマップ: 各楽器のキー・声部・符頭形状
 const VF_DRUM_MAP = {
-  // VexFlow percussion clef での標準位置
-  // 参照: uploaded index.html の DRUM マップ
-  crash:  { key:'a/5/x',  stem:  1 },  // 五線上・加線・×
-  splash: { key:'b/5/x',  stem:  1 },  // crash より高め・×
-  ride:   { key:'f/5/x',  stem:  1 },  // 第5線上・×
-  hihat:  { key:'g/5/x',  stem:  1 },  // 第5線と第4線の間・×
-  tom12:  { key:'c/5',    stem: -1 },  // 第3線（ハイタム）
-  tom13:  { key:'a/4',    stem: -1 },  // 第4間（ミッドタム）
-  snare:  { key:'b/4',    stem: -1 },  // 第3間（スネア標準位置）
-  tom16:  { key:'g/4',    stem: -1 },  // 第4線（フロアタム）
-  kick:   { key:'d/4',    stem: -1 },  // 第1間（キック）
+  // percussion clef (treble と同じ音名→位置対応)
+  // 参照画像: HiHat=五線の上, Snare=第3間, Kick=五線のすぐ下
+  crash:  { key:'a/5/x',  stem:  1 },  // 加線1本上 ×
+  splash: { key:'b/5/x',  stem:  1 },  // さらに上 ×
+  ride:   { key:'f/5/x',  stem:  1 },  // 第5線上 ×
+  hihat:  { key:'g/5/x',  stem:  1 },  // 第5線と加線の間 ×
+  tom12:  { key:'e/5',    stem: -1 },  // 第4線（ハイタム）
+  tom13:  { key:'c/5',    stem: -1 },  // 第3線（ミッドタム）
+  snare:  { key:'b/4',    stem: -1 },  // 第3間（スネア）
+  tom16:  { key:'g/4',    stem: -1 },  // 第2間（フロアタム）
+  kick:   { key:'c/4',    stem: -1 },  // 第1線より下（キック）
 };
 
 // 音名の高さ比較用
