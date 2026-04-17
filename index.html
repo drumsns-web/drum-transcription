@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>DrumScript</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header id="header">
+    <div class="header-left">
+      <span class="app-logo">▣</span>
+      <span class="app-name">DrumScript</span>
+    </div>
+    <div class="header-center">
+      <button id="btn-play" class="ctrl-btn play-btn" title="再生">▶</button>
+      <button id="btn-stop" class="ctrl-btn" title="停止">■</button>
+      <label class="bpm-label">BPM
+        <input id="bpm-input" type="number" value="120" min="40" max="240">
+      </label>
+    </div>
+    <div class="header-right">
+      <button id="btn-loop" class="ctrl-btn loop-btn" title="ループ">⟳</button>
+    </div>
+  </header>
+
+  <!-- AUDIO LOAD BAR -->
+  <section id="audio-bar">
+    <label class="file-btn" for="file-input">
+      <span>♪ 音源を開く</span>
+      <input id="file-input" type="file" accept=".wav,.mp3,.m4a,audio/*" hidden>
+    </label>
+    <div class="file-info">
+      <span id="file-name">未選択</span>
+      <span id="file-duration"></span>
+    </div>
+    <button id="btn-analyze" class="analyze-btn" disabled>解析</button>
+    <div id="analyze-hint" class="hint">Moises等で分離済みのドラム音源を読み込んでください（未分離音源では精度が低下します）</div>
+  </section>
+
+  <!-- PROGRESS BAR -->
+  <div id="progress-bar-wrap" hidden>
+    <div id="progress-bar"></div>
+    <span id="progress-label">解析中...</span>
+  </div>
+
+  <!-- GRID AREA -->
+  <main id="grid-area">
+    <div id="grid-scroll-wrap">
+      <div id="grid-inner">
+        <!-- Lane headers + step grid -->
+        <div id="lane-headers"></div>
+        <div id="step-grid"></div>
+      </div>
+    </div>
+    <!-- measure ruler -->
+    <div id="measure-ruler-wrap">
+      <div id="measure-ruler-spacer"></div>
+      <div id="measure-ruler"></div>
+    </div>
+  </main>
+
+  <!-- TOOLBAR -->
+  <footer id="toolbar">
+    <button id="btn-draw" class="tool-btn active" data-mode="draw">✏ 描画</button>
+    <button id="btn-erase" class="tool-btn" data-mode="erase">✕ 消去</button>
+    <button id="btn-clear" class="tool-btn danger">🗑 全消去</button>
+    <button id="btn-demo" class="tool-btn">▣ デモ</button>
+  </footer>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
