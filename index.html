@@ -1255,17 +1255,16 @@ function loadDemoPattern() {
 
 // VexFlowドラムマップ: 各楽器のキー・声部・符頭形状
 const VF_DRUM_MAP = {
-  // percussion clef (treble と同じ音名→位置対応)
-  // 各キーを1段ずつ下に調整
-  crash:  { key:'a/5/x',  stem:  1 },  // 加線1本上 ×
-  splash: { key:'b/5/x',  stem:  1 },  // さらに上 ×
-  ride:   { key:'e/5/x',  stem:  1 },  // 第4線上 ×
-  hihat:  { key:'f/5/x',  stem:  1 },  // 第5線上 ×
-  tom12:  { key:'d/5',    stem: -1 },  // 第4間（ハイタム）
-  tom13:  { key:'b/4',    stem: -1 },  // 第3間（ミッドタム）
-  snare:  { key:'a/4',    stem: -1 },  // 第4線（スネア）
-  tom16:  { key:'f/4',    stem: -1 },  // 第2線（フロアタム）
-  kick:   { key:'d/4',    stem: -1 },  // 第1間（キック）
+  // 参照ファイル index.html の DRUM マップと完全一致
+  crash:  { key:'a/5/x',  stem:  1 },
+  splash: { key:'a/5/x',  stem:  1 },
+  ride:   { key:'f/5/x',  stem:  1 },
+  hihat:  { key:'f/5/x',  stem:  1 },
+  tom12:  { key:'c/5',    stem: -1 },
+  tom13:  { key:'a/4',    stem: -1 },
+  snare:  { key:'b/4',    stem: -1 },
+  tom16:  { key:'g/4',    stem: -1 },
+  kick:   { key:'d/4',    stem: -1 },
 };
 
 // 音名の高さ比較用
@@ -1359,18 +1358,20 @@ function buildVexFlowScore() {
   const VF = Vex.Flow;
   const { Renderer, Stave, Voice, Formatter, Beam } = VF;
 
-  const ms = state.measures;
-  const MPR = 4;           // measures per row
-  const SW  = 220;         // stave width per measure
-  const SX  = 14;          // left margin
-  const SY  = 20;          // top margin
-  const ROW_H = 160;       // row height
+  const ms     = state.measures;
+  const MPR    = 4;    // measures per row
+  const SW     = 250;  // stave width（通常小節）
+  const SW1    = 310;  // 第1小節（clef+拍子記号の分だけ広く）
+  const SX     = 14;
+  const SY     = 40;   // 上余白（シンバルが五線上に出る分）
+  const ROW_H  = 180;
   const numRows = Math.ceil(ms / MPR);
 
-  const totalW = SX + MPR * SW + 20;
-  const totalH = SY + numRows * ROW_H + 20;
+  // 行ごとの総幅（第1行は SW1 + (MPR-1)*SW、他は MPR*SW）
+  const rowW = (row) => row === 0 ? SW1 + (MPR - 1) * SW : MPR * SW;
+  const totalW = SX + rowW(0) + 20;
+  const totalH = SY + numRows * ROW_H + 40;
 
-  // SVGレンダラーを一時divに描画
   const div = document.createElement('div');
   div.style.cssText = 'position:absolute;left:-9999px;top:-9999px;';
   document.body.appendChild(div);
@@ -1379,45 +1380,50 @@ function buildVexFlowScore() {
   renderer.resize(totalW, totalH);
   const ctx = renderer.getContext();
   const svg = div.querySelector('svg');
-  if (svg) {
-    svg.style.background = '#fff';
-  }
+  if (svg) svg.style.background = '#fff';
 
   for (let row = 0; row < numRows; row++) {
     for (let mi = 0; mi < MPR; mi++) {
-      const mIdx = row * MPR + mi;
+      const mIdx   = row * MPR + mi;
       if (mIdx >= ms) break;
 
-      const x = SX + mi * SW;
-      const y = SY + row * ROW_H;
       const isFirst = (mIdx === 0);
-      const staveW = isFirst ? SW : SW;
+      // X座標：第1小節はSW1、それ以降はSW
+      let x;
+      if (row === 0) {
+        x = SX + (mi === 0 ? 0 : SW1 + (mi - 1) * SW);
+      } else {
+        x = SX + mi * SW;
+      }
+      const y   = SY + row * ROW_H;
+      const stW = isFirst ? SW1 : SW;
 
-      const stave = new Stave(x, y, staveW);
+      const stave = new Stave(x, y, stW);
       if (isFirst) stave.addClef('percussion').addTimeSignature('4/4');
       stave.setContext(ctx).draw();
 
-      // 上声部（シンバル、stem↑）
-      const upSlots = buildSlots(mIdx, 1);
-      const upNotes = buildVfNotes(upSlots, 1, VF);
-
-      // 下声部（タム・スネア・キック、stem↓）
-      const dnSlots = buildSlots(mIdx, -1);
-      const dnNotes = buildVfNotes(dnSlots, -1, VF);
+      // 上声部・下声部
+      const upNotes = buildVfNotes(buildSlots(mIdx,  1),  1, VF);
+      const dnNotes = buildVfNotes(buildSlots(mIdx, -1), -1, VF);
 
       const vUp = new Voice({ num_beats: 4, beat_value: 4 }).setStrict(false);
       const vDn = new Voice({ num_beats: 4, beat_value: 4 }).setStrict(false);
       vUp.addTickables(upNotes);
       vDn.addTickables(dnNotes);
 
-      new Formatter()
-        .joinVoices([vUp, vDn])
-        .format([vUp, vDn], staveW - (isFirst ? 90 : 14));
+      // format幅：stave幅 - modifiers幅（clef+拍子=約90、通常=約20）
+      const fmtW = stW - (isFirst ? 90 : 20);
+      new Formatter().joinVoices([vUp, vDn]).format([vUp, vDn], fmtW);
 
-      // Beam生成（GhostNote・休符は除く）
-      const isPlayable = n => !n.isRest?.() && n.constructor?.name !== 'GhostNote' && n.getDuration?.() !== undefined;
-      const beamUp = Beam.generateBeams(upNotes.filter(isPlayable), { stem_direction:  1 });
-      const beamDn = Beam.generateBeams(dnNotes.filter(isPlayable), { stem_direction: -1 });
+      // Beam（GhostNoteと休符を除く）
+      const playable = n => {
+        if (!n || typeof n.isRest !== 'function') return false;
+        if (n.isRest()) return false;
+        if (n.constructor?.CATEGORY === 'ghostnotes') return false;
+        return true;
+      };
+      const beamUp = Beam.generateBeams(upNotes.filter(playable), { stem_direction:  1 });
+      const beamDn = Beam.generateBeams(dnNotes.filter(playable), { stem_direction: -1 });
 
       vUp.draw(ctx, stave);
       vDn.draw(ctx, stave);
