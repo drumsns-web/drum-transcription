@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>DrumScript</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
   <style>
 /* ===== RESET & BASE ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1238,301 +1239,252 @@ function loadDemoPattern() {
 //  PDFはjsPDFを使わず、ブラウザのprint APIで実現する
 //  （外部ライブラリ不要・依存ゼロ）
 
-// ── 13. SCORE EXPORT (Canvas → PNG / PDF) ───────────────────
+// ── 13. SCORE EXPORT (VexFlow) ───────────────────────────────
 //
-//  標準ドラム譜レイアウト（画像資料に基づく正確な位置）
+//  VexFlowを使った本格ドラム譜レンダリング
+//  参照: アップロードされたindex.htmlの renderScore() 実装
 //
-//  座標系: staffPos = 第5線(最上線)からの距離
-//    0   = 第5線
-//    0.5 = 第5間（第5線と第4線の間）
-//    1.0 = 第4線
-//    1.5 = 第4間
-//    2.0 = 第3線
-//    2.5 = 第3間（五線中央）
-//    3.0 = 第2線
-//    3.5 = 第2間
-//    4.0 = 第1線
-//    4.5 = 第1間（第1線の下）
-//    5.0 = 第1線より1本下（加線1本）
-//
-//  画像資料より:
-//    Crash  → 第5線の上に加線1本  = -1.0（⊗）符尾上
-//    Splash → 第5線の上           = -0.5（×）符尾上
-//    Ride   → 第5線の上           = -0.5（×）符尾上 ※Splashと同位置だが左右で区別
-//    HiHat  → 第5線のすぐ上       = -0.5（×）符尾上
-//    Tom12  → 第4線               = +1.0（●）符尾上
-//    Tom13  → 第4間               = +1.5（●）符尾上
-//    Snare  → 第3間               = +2.5（●）符尾上  ※画像4確認済み
-//    Tom16  → 第2間（フロア）     = +3.5（●）符尾上
-//    Kick   → 第1線の下（加線）   = +4.5（●）符尾下  ※画像4確認済み
+//  設計:
+//   - percussion clef + 4/4拍子
+//   - 上声部(stem↑): シンバル系 (crash/splash/ride/hihat)
+//   - 下声部(stem↓): タム・スネア・キック
+//   - 連桁(Beam.generateBeams)で16分音符をグループ化
+//   - 休符を自動挿入してVexFlowに正しい小節を渡す
+//   - PNG: Canvas経由でダウンロード
+//   - PDF: 印刷ダイアログ経由
 
-const SCORE_LANE_DEF = {
-  crash:  { staffPos: -1.0, shape: 'x2', stemUp: true,  label: 'Cr'  },
-  splash: { staffPos: -0.5, shape: 'x',  stemUp: true,  label: 'Sp'  },
-  ride:   { staffPos: -0.5, shape: 'x',  stemUp: true,  label: 'Rd'  },
-  hihat:  { staffPos: -0.5, shape: 'x',  stemUp: true,  label: 'HH'  },
-  tom12:  { staffPos:  1.0, shape: 'o',  stemUp: true,  label: 'T12' },
-  tom13:  { staffPos:  1.5, shape: 'o',  stemUp: true,  label: 'T13' },
-  snare:  { staffPos:  2.0, shape: 'o',  stemUp: true,  label: 'Sn'  },
-  tom16:  { staffPos:  3.5, shape: 'o',  stemUp: true,  label: 'T16' },
-  kick:   { staffPos:  5.0, shape: 'o',  stemUp: false, label: 'Kk'  },
+// VexFlowドラムマップ: 各楽器のキー・声部・符頭形状
+const VF_DRUM_MAP = {
+  //          key       stem   xHead
+  crash:  { key:'a/5', stem: 1,  xHead: true  },
+  splash: { key:'g/5', stem: 1,  xHead: true  },
+  ride:   { key:'f/5', stem: 1,  xHead: false },  // 通常符頭
+  hihat:  { key:'g/5', stem: 1,  xHead: true  },  // splashと同じ高さ、×
+  tom12:  { key:'c/5', stem:-1,  xHead: false },
+  tom13:  { key:'a/4', stem:-1,  xHead: false },
+  snare:  { key:'b/4', stem:-1,  xHead: false },
+  tom16:  { key:'g/4', stem:-1,  xHead: false },
+  kick:   { key:'d/4', stem:-1,  xHead: false },
 };
 
-function buildScoreCanvas() {
-  const MPR      = 4;    // measures per row
-  const SPM      = 16;   // steps per measure
-  const G        = 9;    // 線間隔(px)
-  const NOTE_W   = 5;    // 符頭の横半径
-  const NOTE_H   = 3.8;  // 符頭の縦半径
-  const STEM_LEN = G * 3.5;
-  const STEP_W   = 30;   // 1ステップ幅
-  const LEFT     = 62;
-  const RIGHT    = 20;
-  const TOP      = 52;
-  const ROW_H    = 160;  // 1行の高さ（キックが五線下に出る分を確保）
+// 音名の高さ比較用（高い音が先に来るようにソート）
+function vfPitch(key) {
+  const m = key.match(/([a-g])\/(\d)/i);
+  if (!m) return 0;
+  const noteVal = { c:0, d:1, e:2, f:3, g:4, a:5, b:6 };
+  return parseInt(m[2]) * 7 + (noteVal[m[1].toLowerCase()] ?? 0);
+}
 
-  // 第5線のY（行内）: 上に加線2本分の余裕、下にキック分の余裕
-  const STAFF_TOP_IN_ROW = 44;
-
-  const totalMeasures = state.measures;
-  const numRows = Math.ceil(totalMeasures / MPR);
-  const rowW    = LEFT + RIGHT + STEP_W * SPM * MPR;
-  const canvasW = rowW;
-  const canvasH = TOP + numRows * ROW_H + 20;
-
-  const canvas = document.createElement('canvas');
-  const SCALE  = 2;
-  canvas.width  = canvasW * SCALE;
-  canvas.height = canvasH * SCALE;
-  canvas.style.width  = canvasW + 'px';
-  canvas.style.height = canvasH + 'px';
-  const ctx = canvas.getContext('2d');
-  ctx.scale(SCALE, SCALE);
-
-  // 背景白
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, canvasW, canvasH);
-
-  // タイトル
-  ctx.fillStyle = '#000';
-  ctx.font = 'bold 13px serif';
-  ctx.fillText(`DrumScript   BPM: ${state.bpm}`, LEFT, 26);
-
-  for (let row = 0; row < numRows; row++) {
-    const rowY = TOP + row * ROW_H;
-    const s5   = rowY + STAFF_TOP_IN_ROW;  // 第5線のY
-
-    // ── 五線（5本）──
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth   = 0.9;
-    for (let l = 0; l < 5; l++) {
-      const ly = s5 + l * G;
-      ctx.beginPath();
-      ctx.moveTo(LEFT, ly);
-      ctx.lineTo(canvasW - RIGHT, ly);
-      ctx.stroke();
-    }
-
-    // ── バス記号（行頭の縦線 + 太線）──
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(LEFT, s5);
-    ctx.lineTo(LEFT, s5 + 4 * G);
-    ctx.stroke();
-    ctx.fillStyle = '#000';
-    ctx.fillRect(LEFT + 1.5, s5, 4, 4 * G);
-
-    // ── 小節線・拍線 ──
-    const firstMeas = row * MPR;
-    for (let mi = 0; mi <= MPR; mi++) {
-      const mIdx  = firstMeas + mi;
-      const bx    = LEFT + mi * STEP_W * SPM;
-      const isEnd = (mi === MPR || mIdx >= totalMeasures);
-
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth   = isEnd ? 1.8 : 0.9;
-      ctx.beginPath();
-      ctx.moveTo(bx, s5);
-      ctx.lineTo(bx, s5 + 4 * G);
-      ctx.stroke();
-
-      if (mi < MPR && mIdx < totalMeasures) {
-        // 小節番号
-        ctx.fillStyle = '#666';
-        ctx.font      = '8px sans-serif';
-        ctx.textAlign = 'left';
-        ctx.fillText(`${mIdx + 1}`, bx + 2, s5 - 4);
-
-        // 拍線（薄）
-        for (let beat = 1; beat < 4; beat++) {
-          const px = bx + beat * 4 * STEP_W;
-          ctx.strokeStyle = '#ccc';
-          ctx.lineWidth   = 0.5;
-          ctx.beginPath();
-          ctx.moveTo(px, s5);
-          ctx.lineTo(px, s5 + 4 * G);
-          ctx.stroke();
-        }
+// ステップデータを各小節のスロットに分割
+// slots[loc] = [ {laneId, ...}, ... ]
+function buildSlots(measureIdx, voice) {
+  const SPM = STEPS_PER_MEASURE;
+  const slots = Array.from({ length: SPM }, () => []);
+  LANES.forEach(lane => {
+    const def = VF_DRUM_MAP[lane.id];
+    if (!def) return;
+    if (def.stem !== voice) return;
+    for (let s = 0; s < SPM; s++) {
+      const gIdx = measureIdx * SPM + s;
+      if (getStep(lane.id, gIdx).active) {
+        slots[s].push({ laneId: lane.id, def });
       }
     }
+  });
+  return slots;
+}
 
-    // ── レーンラベル（左端・各行）──
-    ctx.textAlign = 'right';
-    ctx.font      = '7px monospace';
-    // 同じstaffPosのレーンはラベルをずらす
-    const labeledPos = {};
-    LANES.forEach(lane => {
-      const def = SCORE_LANE_DEF[lane.id];
-      if (!def) return;
-      const ny = s5 + def.staffPos * G;
-      const key = def.staffPos.toFixed(1);
-      const offset = (labeledPos[key] || 0) * 8;
-      labeledPos[key] = (labeledPos[key] || 0) + 1;
-      ctx.fillStyle = '#888';
-      ctx.fillText(def.label, LEFT - 4 - offset, ny + 3);
-    });
-    ctx.textAlign = 'left';
+// スロット列からVexFlow StaveNote列を生成（休符補完あり）
+function buildVfNotes(slots, stemDir, VF) {
+  const { StaveNote } = VF;
+  const notes = [];
+  let i = 0;
+  const L = slots.length; // 16
 
-    // ── 加線描画関数 ──
-    function drawLedgerLines(nx, staffPos) {
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth   = 0.9;
-      if (staffPos < 0) {
-        // 五線の上: -1, -2, ... の整数位置に加線
-        for (let lp = -1; lp >= Math.floor(staffPos); lp--) {
-          if (staffPos <= lp + 0.5) {  // 音符がこの加線の上か上下に接する場合
-            const ly = s5 + lp * G;
-            ctx.beginPath();
-            ctx.moveTo(nx - NOTE_W - 3, ly);
-            ctx.lineTo(nx + NOTE_W + 3, ly);
-            ctx.stroke();
-          }
-        }
-      } else if (staffPos > 4) {
-        // 五線の下: 5, 6, ... の整数位置に加線
-        for (let lp = 5; lp <= Math.ceil(staffPos); lp++) {
-          if (staffPos >= lp - 0.5) {
-            const ly = s5 + lp * G;
-            ctx.beginPath();
-            ctx.moveTo(nx - NOTE_W - 3, ly);
-            ctx.lineTo(nx + NOTE_W + 3, ly);
-            ctx.stroke();
-          }
-        }
-      }
+  // 利用可能な音符長（16分単位）
+  const DUR_TABLE = [
+    { steps: 4, dur: 'q'  },
+    { steps: 2, dur: '8'  },
+    { steps: 1, dur: '16' },
+  ];
+
+  function bestDur(gap) {
+    for (const d of DUR_TABLE) {
+      if (d.steps <= gap) return d;
     }
+    return DUR_TABLE[DUR_TABLE.length - 1];
+  }
 
-    // ── ノート描画 ──
-    for (let mi = 0; mi < MPR; mi++) {
-      const mIdx = firstMeas + mi;
-      if (mIdx >= totalMeasures) break;
+  while (i < L) {
+    if (slots[i].length > 0) {
+      // ヒットあり → 16分音符1つ
+      const evs = slots[i].slice().sort((a, b) => vfPitch(b.def.key) - vfPitch(a.def.key));
+      const keys = evs.map(e => e.def.key);
 
-      for (let s = 0; s < SPM; s++) {
-        const gIdx  = mIdx * SPM + s;
-        const noteX = LEFT + (mi * SPM + s) * STEP_W + STEP_W / 2;
+      const note = new StaveNote({
+        keys,
+        duration: '16',
+        stem_direction: stemDir,
+        clef: 'percussion',
+      });
 
-        // 同じstaffPosに複数楽器が鳴る場合のXオフセット管理
-        const usedPos = {};
+      // ×符頭をセット
+      evs.forEach((e, ki) => {
+        if (e.def.xHead && note.noteHeads?.[ki]) {
+          note.noteHeads[ki].glyph_code = 'noteheadXBlack';
+        }
+      });
 
-        LANES.forEach(lane => {
-          const step = getStep(lane.id, gIdx);
-          if (!step.active) return;
-          const def = SCORE_LANE_DEF[lane.id];
-          if (!def) return;
+      notes.push(note);
+      i += 1;
+    } else {
+      // 休符: 連続する空スロットをまとめる
+      let gap = 0;
+      while (i + gap < L && slots[i + gap].length === 0) gap++;
 
-          const posKey = def.staffPos.toFixed(1);
-          const xOff  = (usedPos[posKey] || 0) * 8;
-          usedPos[posKey] = (usedPos[posKey] || 0) + 1;
-          const nx    = noteX + xOff;
-          const noteY = s5 + def.staffPos * G;
-
-          // 加線
-          drawLedgerLines(nx, def.staffPos);
-
-          ctx.fillStyle   = '#000';
-          ctx.strokeStyle = '#000';
-
-          if (def.shape === 'x2') {
-            // ⊗ クラッシュ（×の中に○）
-            ctx.lineWidth = 1.4;
-            ctx.beginPath();
-            ctx.arc(nx, noteY, NOTE_W, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(nx - NOTE_W * 0.7, noteY - NOTE_W * 0.7);
-            ctx.lineTo(nx + NOTE_W * 0.7, noteY + NOTE_W * 0.7);
-            ctx.moveTo(nx + NOTE_W * 0.7, noteY - NOTE_W * 0.7);
-            ctx.lineTo(nx - NOTE_W * 0.7, noteY + NOTE_W * 0.7);
-            ctx.stroke();
-          } else if (def.shape === 'x') {
-            // × シンバル系
-            ctx.lineWidth = 1.5;
-            const r = NOTE_W * 0.75;
-            ctx.beginPath();
-            ctx.moveTo(nx - r, noteY - r);
-            ctx.lineTo(nx + r, noteY + r);
-            ctx.moveTo(nx + r, noteY - r);
-            ctx.lineTo(nx - r, noteY + r);
-            ctx.stroke();
-          } else {
-            // ● 通常ノート（タム・スネア・キック）
-            ctx.beginPath();
-            ctx.ellipse(nx, noteY, NOTE_W, NOTE_H, -0.15, 0, Math.PI * 2);
-            ctx.fill();
-          }
-
-          // ── 符幹 ──
-          ctx.strokeStyle = '#000';
-          ctx.lineWidth   = 1;
-          if (def.stemUp) {
-            const sx = nx + (def.shape !== 'o' ? 0 : NOTE_W - 0.5);
-            ctx.beginPath();
-            ctx.moveTo(sx, noteY - (def.shape !== 'o' ? NOTE_W * 0.7 : NOTE_H * 0.5));
-            ctx.lineTo(sx, noteY - STEM_LEN);
-            ctx.stroke();
-          } else {
-            // キック: 符尾下向き
-            const sx = nx - NOTE_W + 0.5;
-            ctx.beginPath();
-            ctx.moveTo(sx, noteY + NOTE_H * 0.5);
-            ctx.lineTo(sx, noteY + STEM_LEN);
-            ctx.stroke();
-          }
-        });
+      while (gap > 0) {
+        const d = bestDur(gap);
+        const restKey = stemDir === 1 ? 'b/4' : 'b/4';
+        notes.push(new StaveNote({
+          keys: [restKey],
+          duration: d.dur + 'r',
+          stem_direction: stemDir,
+        }));
+        gap -= d.steps;
+        i   += d.steps;
       }
     }
   }
+  return notes;
+}
 
-  ctx.textAlign = 'left';
-  return canvas;
+function buildVexFlowScore() {
+  if (typeof Vex === 'undefined') return null;
+  const VF = Vex.Flow;
+  const { Renderer, Stave, Voice, Formatter, Beam } = VF;
+
+  const ms = state.measures;
+  const MPR = 4;           // measures per row
+  const SW  = 220;         // stave width per measure
+  const SX  = 14;          // left margin
+  const SY  = 20;          // top margin
+  const ROW_H = 160;       // row height
+  const numRows = Math.ceil(ms / MPR);
+
+  const totalW = SX + MPR * SW + 20;
+  const totalH = SY + numRows * ROW_H + 20;
+
+  // SVGレンダラーを一時divに描画
+  const div = document.createElement('div');
+  div.style.cssText = 'position:absolute;left:-9999px;top:-9999px;';
+  document.body.appendChild(div);
+
+  const renderer = new Renderer(div, Renderer.Backends.SVG);
+  renderer.resize(totalW, totalH);
+  const ctx = renderer.getContext();
+  const svg = div.querySelector('svg');
+  if (svg) {
+    svg.style.background = '#fff';
+  }
+
+  for (let row = 0; row < numRows; row++) {
+    for (let mi = 0; mi < MPR; mi++) {
+      const mIdx = row * MPR + mi;
+      if (mIdx >= ms) break;
+
+      const x = SX + mi * SW;
+      const y = SY + row * ROW_H;
+      const isFirst = (mIdx === 0);
+      const staveW = isFirst ? SW : SW;
+
+      const stave = new Stave(x, y, staveW);
+      if (isFirst) stave.addClef('percussion').addTimeSignature('4/4');
+      stave.setContext(ctx).draw();
+
+      // 上声部（シンバル、stem↑）
+      const upSlots = buildSlots(mIdx, 1);
+      const upNotes = buildVfNotes(upSlots, 1, VF);
+
+      // 下声部（タム・スネア・キック、stem↓）
+      const dnSlots = buildSlots(mIdx, -1);
+      const dnNotes = buildVfNotes(dnSlots, -1, VF);
+
+      const vUp = new Voice({ num_beats: 4, beat_value: 4 }).setStrict(false);
+      const vDn = new Voice({ num_beats: 4, beat_value: 4 }).setStrict(false);
+      vUp.addTickables(upNotes);
+      vDn.addTickables(dnNotes);
+
+      new Formatter()
+        .joinVoices([vUp, vDn])
+        .format([vUp, vDn], staveW - (isFirst ? 90 : 14));
+
+      // Beam生成（休符は除く）
+      const beamUp = Beam.generateBeams(upNotes.filter(n => !n.isRest?.()),  { stem_direction:  1 });
+      const beamDn = Beam.generateBeams(dnNotes.filter(n => !n.isRest?.()),  { stem_direction: -1 });
+
+      vUp.draw(ctx, stave);
+      vDn.draw(ctx, stave);
+      beamUp.forEach(b => b.setContext(ctx).draw());
+      beamDn.forEach(b => b.setContext(ctx).draw());
+    }
+  }
+
+  return { div, svg, totalW, totalH };
 }
 
 function exportPNG() {
-  const canvas = buildScoreCanvas();
-  const a = document.createElement('a');
-  a.href = canvas.toDataURL('image/png');
-  a.download = `drumscript_score_${Date.now()}.png`;
-  a.click();
-  showToast('🖼 PNG を保存しました');
+  const result = buildVexFlowScore();
+  if (!result) { showToast('⚠ VexFlowが読み込まれていません'); return; }
+  const { div, svg, totalW, totalH } = result;
+
+  // SVG → Canvas → PNG
+  const svgData = new XMLSerializer().serializeToString(svg);
+  const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(svgBlob);
+  const img = new Image();
+  img.onload = () => {
+    const SCALE = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width  = totalW  * SCALE;
+    canvas.height = totalH  * SCALE;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.scale(SCALE, SCALE);
+    ctx.drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+    document.body.removeChild(div);
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = `drumscript_score_${Date.now()}.png`;
+    a.click();
+    showToast('🖼 PNG を保存しました');
+  };
+  img.src = url;
 }
 
 function exportPDF() {
-  const canvas  = buildScoreCanvas();
-  const dataUrl = canvas.toDataURL('image/png');
+  const result = buildVexFlowScore();
+  if (!result) { showToast('⚠ VexFlowが読み込まれていません'); return; }
+  const { div, svg } = result;
+
+  const svgData = new XMLSerializer().serializeToString(svg);
+  document.body.removeChild(div);
+
   const win = window.open('', '_blank');
   if (!win) { alert('ポップアップをブロックしないでください'); return; }
   win.document.write(`<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>DrumScript Score</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box;}
-  body{background:#fff;}
-  img{width:100%;display:block;}
+  body{background:#fff;padding:8mm;}
+  svg{width:100%;height:auto;display:block;}
   @media print{
     @page{size:A4 landscape;margin:8mm;}
-    body{print-color-adjust:exact;-webkit-print-color-adjust:exact;}
+    body{padding:0;print-color-adjust:exact;-webkit-print-color-adjust:exact;}
   }
 </style></head><body>
-<img src="${dataUrl}">
+${svgData}
 <script>window.onload=()=>window.print();<\/script>
 </body></html>`);
   win.document.close();
