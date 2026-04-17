@@ -762,82 +762,286 @@ function applyPointerToCell(cell) {
 }
 
 // ── 7. SYNTH SAMPLES ────────────────────────────────────────
+//
+//  各楽器をWeb Audio APIでオフラインレンダリングして
+//  AudioBufferに焼き付ける。再生時はBufferSourceで即時発音。
+//
+//  設計方針:
+//   - KICK  : サイン波 × ピッチエンベロープ + 歪み + ローパス → 低域ズンとした打感
+//   - SNARE : 基音(2sine) + バンドパスノイズ + アンプエンベロープ
+//   - HIHAT : メタリックな倍音6本 + ハイパスノイズ (closed/open 共通関数)
+//   - TOM   : ピッチエンベロープ付きサイン × サイズ別ピッチ
+//   - CRASH : 多倍音ノイズ + 長いディケイ
+//   - RIDE  : 金属的倍音 + 短いping
+//   - SPLASH: 高域ノイズ + 極速ディケイ
 
 const synthBufs = {};
 
-function makeSynthBufs() {
+// 各楽器の再生ゲイン(音量バランス調整)
+const LANE_GAIN = {
+  kick:   1.4,
+  snare:  1.0,
+  hihat:  0.7,
+  tom12:  1.0,
+  tom13:  1.0,
+  tom16:  1.1,
+  crash:  0.8,
+  ride:   0.75,
+  splash: 0.65,
+};
+
+async function makeSynthBufs() {
   const sr = audioCtx.sampleRate;
 
-  // Helper: create buffer with generator fn
-  function mkBuf(dur, fn) {
-    const buf = audioCtx.createBuffer(1, Math.floor(sr * dur), sr);
-    const d   = buf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = fn(i / sr, i, d.length);
-    return buf;
+  // オフラインレンダリングで各楽器バッファを生成
+  async function renderOffline(dur, buildFn) {
+    const frames  = Math.ceil(sr * dur);
+    const offline = new OfflineAudioContext(1, frames, sr);
+    buildFn(offline);
+    return offline.startRendering();
   }
 
-  // KICK: low pitched sine, steep pitch drop
-  synthBufs.kick = mkBuf(0.40, t =>
-    Math.exp(-t * 20) * Math.sin(2 * Math.PI * 60 * Math.exp(-t * 18) * t) * 0.9
-  );
+  // ── KICK ──────────────────────────────────────────────────
+  // 低域サイン(ピッチドロップ) + クリック感(ノイズバースト) + 歪み
+  synthBufs.kick = await renderOffline(0.6, (ctx) => {
+    const dur = 0.6;
+    const buf = ctx.createBuffer(1, Math.ceil(sr * dur), sr);
+    const d   = buf.getChannelData(0);
 
-  // SNARE: mid tone + noise
-  synthBufs.snare = mkBuf(0.25, t => {
-    const env = Math.exp(-t * 28);
-    return env * (Math.sin(2 * Math.PI * 190 * t) * 0.4 + (Math.random() * 2 - 1) * 0.7) * 0.6;
+    for (let i = 0; i < d.length; i++) {
+      const t = i / sr;
+      // ピッチエンベロープ: 120Hz → 45Hz
+      const freq   = 45 + 75 * Math.exp(-t * 22);
+      // 位相積分でサイン波生成
+      const body   = Math.sin(2 * Math.PI * freq * t);
+      // アンプエンベロープ: パンチ感のあるアタック + ゆったりディケイ
+      const ampEnv = Math.exp(-t * 10) * (1 - Math.exp(-t * 200));
+      // クリック: 最初3msだけノイズ混入
+      const click  = t < 0.003 ? (Math.random() * 2 - 1) * 0.4 : 0;
+      // 軽い歪み(tanh)
+      const raw    = body * ampEnv + click;
+      d[i]         = Math.tanh(raw * 2.5) * 0.7;
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    // ローパスでサブ感強調
+    const lp = ctx.createBiquadFilter();
+    lp.type            = 'lowpass';
+    lp.frequency.value = 180;
+    lp.Q.value         = 0.8;
+    src.connect(lp);
+    lp.connect(ctx.destination);
+    src.start(0);
   });
 
-  // HIHAT (closed): short noise burst, high-pass
-  synthBufs.hihat = mkBuf(0.08, t =>
-    Math.exp(-t * 80) * (Math.random() * 2 - 1) * 0.5
-  );
+  // ── SNARE ─────────────────────────────────────────────────
+  // 基音2本(180Hz+240Hz) + ホワイトノイズ(バンドパス) + クリック
+  synthBufs.snare = await renderOffline(0.35, (ctx) => {
+    const dur = 0.35;
+    const buf = ctx.createBuffer(1, Math.ceil(sr * dur), sr);
+    const d   = buf.getChannelData(0);
 
-  // TOM 12" : higher pitch, medium decay
-  synthBufs.tom12 = mkBuf(0.35, t =>
-    Math.exp(-t * 14) * Math.sin(2 * Math.PI * 180 * Math.exp(-t * 8) * t) * 0.85
-  );
+    for (let i = 0; i < d.length; i++) {
+      const t      = i / sr;
+      const toneEnv = Math.exp(-t * 18);
+      const noiseEnv = Math.exp(-t * 14);
+      const tone   = (Math.sin(2 * Math.PI * 180 * t) * 0.5
+                    + Math.sin(2 * Math.PI * 240 * t) * 0.3) * toneEnv;
+      const noise  = (Math.random() * 2 - 1) * noiseEnv;
+      const click  = t < 0.002 ? (Math.random() * 2 - 1) * 0.5 : 0;
+      d[i]         = (tone * 0.45 + noise * 0.6 + click) * 0.85;
+    }
 
-  // TOM 13" : mid pitch
-  synthBufs.tom13 = mkBuf(0.38, t =>
-    Math.exp(-t * 12) * Math.sin(2 * Math.PI * 130 * Math.exp(-t * 7) * t) * 0.85
-  );
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    // スネアのスナッピー感: バンドパス 2kHz
+    const bp = ctx.createBiquadFilter();
+    bp.type            = 'bandpass';
+    bp.frequency.value = 2000;
+    bp.Q.value         = 0.5;
+    // ローパスで低域も残す
+    const lp = ctx.createBiquadFilter();
+    lp.type            = 'lowpass';
+    lp.frequency.value = 6000;
 
-  // TOM 16" (floor tom): low pitch, longer decay
-  synthBufs.tom16 = mkBuf(0.45, t =>
-    Math.exp(-t * 9) * Math.sin(2 * Math.PI * 80 * Math.exp(-t * 5) * t) * 0.88
-  );
+    const gain = ctx.createGain();
+    gain.gain.value = 1.0;
 
-  // CRASH: bright noise + shimmer, long decay
-  synthBufs.crash = mkBuf(1.2, t => {
-    const env  = Math.exp(-t * 4);
-    const body = Math.sin(2 * Math.PI * 3200 * t) * 0.15;
-    const noise = (Math.random() * 2 - 1) * 0.85;
-    return env * (body + noise) * 0.5;
+    src.connect(lp);
+    lp.connect(ctx.destination);
+    src.start(0);
   });
 
-  // RIDE: metallic tone with ping, medium decay
-  synthBufs.ride = mkBuf(0.9, t => {
-    const env  = Math.exp(-t * 5);
-    const ping = Math.sin(2 * Math.PI * 2800 * t) * 0.5 + Math.sin(2 * Math.PI * 4200 * t) * 0.25;
-    const sizzle = (Math.random() * 2 - 1) * 0.25;
-    return env * (ping + sizzle) * 0.55;
+  // ── HIHAT (closed) ────────────────────────────────────────
+  // 金属的倍音6本 + ハイパスホワイトノイズ
+  synthBufs.hihat = await renderOffline(0.12, (ctx) => {
+    const dur = 0.12;
+    const buf = ctx.createBuffer(1, Math.ceil(sr * dur), sr);
+    const d   = buf.getChannelData(0);
+    // シンバルらしい非整数倍音
+    const freqs = [3600, 5400, 7200, 8100, 10200, 12600];
+
+    for (let i = 0; i < d.length; i++) {
+      const t   = i / sr;
+      const env = Math.exp(-t * 55);
+      let v = 0;
+      freqs.forEach((f, j) => {
+        v += Math.sin(2 * Math.PI * f * t) * (0.3 - j * 0.04);
+      });
+      v += (Math.random() * 2 - 1) * 0.4;
+      d[i] = env * v * 0.45;
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const hp = ctx.createBiquadFilter();
+    hp.type            = 'highpass';
+    hp.frequency.value = 7000;
+    src.connect(hp);
+    hp.connect(ctx.destination);
+    src.start(0);
   });
 
-  // SPLASH: short bright crash, very fast decay
-  synthBufs.splash = mkBuf(0.3, t => {
-    const env  = Math.exp(-t * 18);
-    const body = Math.sin(2 * Math.PI * 4800 * t) * 0.2;
-    const noise = (Math.random() * 2 - 1) * 0.8;
-    return env * (body + noise) * 0.45;
+  // ── TOM 共通関数 ──────────────────────────────────────────
+  async function makeTom(rootHz, decayMul, dur) {
+    return renderOffline(dur, (ctx) => {
+      const buf = ctx.createBuffer(1, Math.ceil(sr * dur), sr);
+      const d   = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) {
+        const t    = i / sr;
+        // ピッチエンベロープ
+        const freq = rootHz * (1 + 0.6 * Math.exp(-t * 40));
+        const body = Math.sin(2 * Math.PI * freq * t);
+        // 2倍音で胴鳴り感
+        const body2 = Math.sin(2 * Math.PI * freq * 2.1 * t) * 0.2;
+        const env  = Math.exp(-t * decayMul) * (1 - Math.exp(-t * 300));
+        const click = t < 0.003 ? (Math.random() * 2 - 1) * 0.15 : 0;
+        d[i] = (body + body2) * env * 0.75 + click;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const lp = ctx.createBiquadFilter();
+      lp.type            = 'lowpass';
+      lp.frequency.value = rootHz * 6;
+      lp.Q.value         = 0.7;
+      src.connect(lp);
+      lp.connect(ctx.destination);
+      src.start(0);
+    });
+  }
+
+  synthBufs.tom12 = await makeTom(220, 11, 0.40); // 12" : 高め
+  synthBufs.tom13 = await makeTom(160, 9,  0.45); // 13" : 中
+  synthBufs.tom16 = await makeTom(95,  7,  0.55); // 16" : フロアタム・低め
+
+  // ── CRASH ─────────────────────────────────────────────────
+  // 多倍音ノイズ + 長いリリース + ローミッドの膨らみ
+  synthBufs.crash = await renderOffline(1.8, (ctx) => {
+    const dur = 1.8;
+    const buf = ctx.createBuffer(1, Math.ceil(sr * dur), sr);
+    const d   = buf.getChannelData(0);
+    const freqs = [2100, 3150, 4725, 6300, 8400, 11200, 14700];
+
+    for (let i = 0; i < d.length; i++) {
+      const t   = i / sr;
+      const env = Math.exp(-t * 3.2);
+      let v = (Math.random() * 2 - 1) * 0.7;
+      freqs.forEach((f, j) => {
+        v += Math.sin(2 * Math.PI * f * t + Math.random()) * (0.25 - j * 0.03);
+      });
+      d[i] = env * v * 0.55;
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const hp = ctx.createBiquadFilter();
+    hp.type            = 'highpass';
+    hp.frequency.value = 1800;
+    src.connect(hp);
+    hp.connect(ctx.destination);
+    src.start(0);
+  });
+
+  // ── RIDE ──────────────────────────────────────────────────
+  // 金属的倍音の「ピーン」感 + 短めのノイズ
+  synthBufs.ride = await renderOffline(1.2, (ctx) => {
+    const dur = 1.2;
+    const buf = ctx.createBuffer(1, Math.ceil(sr * dur), sr);
+    const d   = buf.getChannelData(0);
+    const freqs = [2350, 3525, 5290, 7050, 9400];
+
+    for (let i = 0; i < d.length; i++) {
+      const t    = i / sr;
+      const envL = Math.exp(-t * 4);   // 倍音: 長め
+      const envN = Math.exp(-t * 18);  // ノイズ: 短め
+      let v = 0;
+      freqs.forEach((f, j) => {
+        v += Math.sin(2 * Math.PI * f * t) * (0.35 - j * 0.05) * envL;
+      });
+      v += (Math.random() * 2 - 1) * 0.2 * envN;
+      d[i] = v * 0.6;
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const hp = ctx.createBiquadFilter();
+    hp.type            = 'highpass';
+    hp.frequency.value = 2000;
+    src.connect(hp);
+    hp.connect(ctx.destination);
+    src.start(0);
+  });
+
+  // ── SPLASH ────────────────────────────────────────────────
+  // クラッシュより高域・極速ディケイ
+  synthBufs.splash = await renderOffline(0.4, (ctx) => {
+    const dur = 0.4;
+    const buf = ctx.createBuffer(1, Math.ceil(sr * dur), sr);
+    const d   = buf.getChannelData(0);
+    const freqs = [4200, 6300, 8400, 10500, 13000];
+
+    for (let i = 0; i < d.length; i++) {
+      const t   = i / sr;
+      const env = Math.exp(-t * 14);
+      let v = (Math.random() * 2 - 1) * 0.6;
+      freqs.forEach((f, j) => {
+        v += Math.sin(2 * Math.PI * f * t) * (0.2 - j * 0.03);
+      });
+      d[i] = env * v * 0.5;
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const hp = ctx.createBiquadFilter();
+    hp.type            = 'highpass';
+    hp.frequency.value = 3500;
+    src.connect(hp);
+    hp.connect(ctx.destination);
+    src.start(0);
   });
 }
 
 function playSample(buf, time) {
   if (!buf) return;
+  const laneId = Object.keys(synthBufs).find(k => synthBufs[k] === buf) ?? 'kick';
   const src = audioCtx.createBufferSource();
   src.buffer = buf;
   const g = audioCtx.createGain();
-  g.gain.value = 0.85;
+  g.gain.value = LANE_GAIN[laneId] ?? 1.0;
+  src.connect(g);
+  g.connect(audioCtx.destination);
+  src.start(time);
+}
+
+// laneId直接指定版（プレイヤーから呼ぶ）
+function playSampleById(laneId, time) {
+  const buf = synthBufs[laneId];
+  if (!buf) return;
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const g = audioCtx.createGain();
+  g.gain.value = LANE_GAIN[laneId] ?? 1.0;
   src.connect(g);
   g.connect(audioCtx.destination);
   src.start(time);
@@ -863,7 +1067,7 @@ function startPlayback() {
   toneSequence = new Tone.Sequence((time, step) => {
     state.currentStep = step;
     LANES.forEach(lane => {
-      if (getStep(lane.id, step).active) playSample(synthBufs[lane.id], time);
+      if (getStep(lane.id, step).active) playSampleById(lane.id, time);
     });
     Tone.getDraw().schedule(() => refreshAllCells(), time);
   }, Array.from({ length: total }, (_, i) => i), '16n');
@@ -1088,11 +1292,12 @@ function loadDemoPattern() {
 
 // ── BOOT ─────────────────────────────────────────────────────
 
-function boot() {
+async function boot() {
   initSteps(state.measures);
-  makeSynthBufs();
   loadDemoPattern();
   renderGrid();
+  // シンセバッファをオフラインレンダリング（非同期）
+  await makeSynthBufs();
   wireEvents();
 }
 
