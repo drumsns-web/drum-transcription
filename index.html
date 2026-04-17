@@ -1255,19 +1255,20 @@ function loadDemoPattern() {
 
 // VexFlowドラムマップ: 各楽器のキー・声部・符頭形状
 const VF_DRUM_MAP = {
-  //          key          stem   xHead（keyに/xで指定）
-  crash:  { key:'a/5/x',  stem: 1  },
-  splash: { key:'g/5/x',  stem: 1  },
-  ride:   { key:'f/5/x',  stem: 1  },
-  hihat:  { key:'g/5/x',  stem: 1  },
-  tom12:  { key:'c/5',    stem:-1  },
-  tom13:  { key:'a/4',    stem:-1  },
-  snare:  { key:'b/4',    stem:-1  },
-  tom16:  { key:'g/4',    stem:-1  },
-  kick:   { key:'d/4',    stem:-1  },
+  // VexFlow percussion clef での標準位置
+  // 参照: uploaded index.html の DRUM マップ
+  crash:  { key:'a/5/x',  stem:  1 },  // 五線上・加線・×
+  splash: { key:'b/5/x',  stem:  1 },  // crash より高め・×
+  ride:   { key:'f/5/x',  stem:  1 },  // 第5線上・×
+  hihat:  { key:'g/5/x',  stem:  1 },  // 第5線と第4線の間・×
+  tom12:  { key:'c/5',    stem: -1 },  // 第3線（ハイタム）
+  tom13:  { key:'a/4',    stem: -1 },  // 第4間（ミッドタム）
+  snare:  { key:'b/4',    stem: -1 },  // 第3間（スネア標準位置）
+  tom16:  { key:'g/4',    stem: -1 },  // 第4線（フロアタム）
+  kick:   { key:'d/4',    stem: -1 },  // 第1間（キック）
 };
 
-// 音名の高さ比較用（高い音が先に来るようにソート）
+// 音名の高さ比較用
 function vfPitch(key) {
   const m = key.match(/([a-g])\/(\d)/i);
   if (!m) return 0;
@@ -1276,7 +1277,6 @@ function vfPitch(key) {
 }
 
 // ステップデータを各小節のスロットに分割
-// slots[loc] = [ {laneId, ...}, ... ]
 function buildSlots(measureIdx, voice) {
   const SPM = STEPS_PER_MEASURE;
   const slots = Array.from({ length: SPM }, () => []);
@@ -1294,14 +1294,14 @@ function buildSlots(measureIdx, voice) {
   return slots;
 }
 
-// スロット列からVexFlow StaveNote列を生成（休符補完あり）
+// スロット列からVexFlow StaveNote列を生成
+// 休符は GhostNote（不可視）で埋める → 休符記号が乱立しない
 function buildVfNotes(slots, stemDir, VF) {
-  const { StaveNote } = VF;
+  const { StaveNote, GhostNote } = VF;
   const notes = [];
   let i = 0;
   const L = slots.length; // 16
 
-  // 利用可能な音符長（16分単位）
   const DUR_TABLE = [
     { steps: 4, dur: 'q'  },
     { steps: 2, dur: '8'  },
@@ -1309,40 +1309,43 @@ function buildVfNotes(slots, stemDir, VF) {
   ];
 
   function bestDur(gap) {
-    for (const d of DUR_TABLE) {
-      if (d.steps <= gap) return d;
-    }
+    for (const d of DUR_TABLE) if (d.steps <= gap) return d;
     return DUR_TABLE[DUR_TABLE.length - 1];
   }
 
   while (i < L) {
     if (slots[i].length > 0) {
-      // ヒットあり → 16分音符1つ
+      // ヒットあり → 16分音符
       const evs = slots[i].slice().sort((a, b) => vfPitch(b.def.key) - vfPitch(a.def.key));
       const keys = evs.map(e => e.def.key);
-
       const note = new StaveNote({
         keys,
         duration: '16',
         stem_direction: stemDir,
         clef: 'percussion',
       });
-
       notes.push(note);
       i += 1;
     } else {
-      // 休符: 連続する空スロットをまとめる
+      // 空スロット → GhostNote（透明、スペース確保のみ）
+      // まとめられる長さで GhostNote を生成
       let gap = 0;
       while (i + gap < L && slots[i + gap].length === 0) gap++;
-
       while (gap > 0) {
         const d = bestDur(gap);
-        const restKey = stemDir === 1 ? 'b/4' : 'b/4';
-        notes.push(new StaveNote({
-          keys: [restKey],
-          duration: d.dur + 'r',
-          stem_direction: stemDir,
-        }));
+        // GhostNote が使えない場合は透明スタイルの休符にフォールバック
+        let ghost;
+        if (GhostNote) {
+          ghost = new GhostNote({ duration: d.dur });
+        } else {
+          ghost = new StaveNote({
+            keys: [stemDir === 1 ? 'b/5' : 'e/4'],
+            duration: d.dur + 'r',
+            stem_direction: stemDir,
+          });
+          ghost.setStyle({ fillStyle: 'transparent', strokeStyle: 'transparent' });
+        }
+        notes.push(ghost);
         gap -= d.steps;
         i   += d.steps;
       }
@@ -1411,9 +1414,10 @@ function buildVexFlowScore() {
         .joinVoices([vUp, vDn])
         .format([vUp, vDn], staveW - (isFirst ? 90 : 14));
 
-      // Beam生成（休符は除く）
-      const beamUp = Beam.generateBeams(upNotes.filter(n => !n.isRest?.()),  { stem_direction:  1 });
-      const beamDn = Beam.generateBeams(dnNotes.filter(n => !n.isRest?.()),  { stem_direction: -1 });
+      // Beam生成（GhostNote・休符は除く）
+      const isPlayable = n => !n.isRest?.() && n.constructor?.name !== 'GhostNote' && n.getDuration?.() !== undefined;
+      const beamUp = Beam.generateBeams(upNotes.filter(isPlayable), { stem_direction:  1 });
+      const beamDn = Beam.generateBeams(dnNotes.filter(isPlayable), { stem_direction: -1 });
 
       vUp.draw(ctx, stave);
       vDn.draw(ctx, stave);
