@@ -1255,16 +1255,19 @@ function loadDemoPattern() {
 
 // VexFlowドラムマップ: 各楽器のキー・声部・符頭形状
 const VF_DRUM_MAP = {
-  // 参照ファイル index.html の DRUM マップと完全一致
-  crash:  { key:'a/5/x',  stem:  1 },
-  splash: { key:'a/5/x',  stem:  1 },
-  ride:   { key:'f/5/x',  stem:  1 },
-  hihat:  { key:'f/5/x',  stem:  1 },
-  tom12:  { key:'c/5',    stem: -1 },
-  tom13:  { key:'a/4',    stem: -1 },
-  snare:  { key:'b/4',    stem: -1 },
-  tom16:  { key:'g/4',    stem: -1 },
-  kick:   { key:'d/4',    stem: -1 },
+  // bass clef での位置
+  // 第5線=G3, 第4線=B3, 第3線=D4, 第2線=F4, 第1線=A4
+  // 間: 第4間=A3, 第3間=C4, 第2間=E4, 第1間=G4
+  // 五線上: B4(第5線のすぐ上)
+  crash:  { key:'c/5/x',  stem:  1 },  // 加線1本上 ×
+  splash: { key:'c/5/x',  stem:  1 },  // 同上 ×
+  ride:   { key:'b/4/x',  stem:  1 },  // 第5線すぐ上 ×
+  hihat:  { key:'b/4/x',  stem:  1 },  // 第5線すぐ上 ×
+  tom12:  { key:'e/4',    stem: -1 },  // 第2間（ハイタム）
+  tom13:  { key:'d/4',    stem: -1 },  // 第3線（ミッドタム）
+  snare:  { key:'c/4',    stem: -1 },  // 第3間（スネア）
+  tom16:  { key:'b/3',    stem: -1 },  // 第4線（フロアタム）
+  kick:   { key:'f/3',    stem: -1 },  // 第1線より下（キック）
 };
 
 // 音名の高さ比較用
@@ -1335,7 +1338,7 @@ function buildVfNotes(slots, stemDir, VF) {
         keys,
         duration: durDef.dur,
         stem_direction: stemDir,
-        clef: 'percussion',
+        clef: 'bass',
       }));
 
       // 音符長の分だけ進める（残りのステップはGhostNoteで埋める）
@@ -1414,7 +1417,7 @@ function buildVexFlowScore() {
       const stW = isFirst ? SW1 : SW;
 
       const stave = new Stave(x, y, stW);
-      if (isFirst) stave.addClef('percussion').addTimeSignature('4/4');
+      if (isFirst) stave.addClef('bass').addTimeSignature('4/4');
       stave.setContext(ctx).draw();
 
       // 上声部・下声部
