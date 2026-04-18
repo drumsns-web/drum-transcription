@@ -643,31 +643,39 @@ function buildAlphaTex(){
              snare:1,rimshot:1,tom10:1,tom12:1,tom16:1};
   var LOWER={kick:1};
 
-  // グリッドモードに応じた基準音符長
-  // spbVal=1→4分, 2→8分, 4→16分, 8→32分
-  // ステップ数→AlphaTex音符名の変換（グリッドモード対応）
-  // 1step = 基準音符長, 2steps = 1つ上, 4steps = 2つ上
-  var BASE_DUR; // 1ステップの音符名
-  if(spbVal===1)      BASE_DUR='4';
-  else if(spbVal===2) BASE_DUR='8';
-  else if(spbVal===4) BASE_DUR='16';
-  else if(spbVal===8) BASE_DUR='32';
-  else                BASE_DUR='16';
-
-  // ステップ数→音符名（基準から倍音符に）
-  // キック用: 最大8分音符相当(spbVal/2 steps)まで
-  var HALF_BEAT=Math.max(1, spbVal/2); // 8分相当のステップ数
-
-  function stepsToDur(steps, maxSteps){
-    var s=Math.min(steps, maxSteps||steps);
-    // s が spbVal の何倍かで音符長を決める
-    if(s>=spbVal*4) return '1';      // 全音符
-    if(s>=spbVal*2) return '2';      // 2分音符
-    if(s>=spbVal)   return '4';      // 4分音符
-    if(s>=spbVal/2) return '8';      // 8分音符
-    if(s>=spbVal/4) return '16';     // 16分音符
-    return BASE_DUR;                  // 基準音符（最小）
+  // ステップ数 → AlphaTex音符名
+  // spbVal に関わらず「実際の音価」で決定
+  // 4分音符 = spbVal steps (1拍)
+  // 8分音符 = spbVal/2 steps
+  // 16分音符 = spbVal/4 steps (16分グリッドの1ステップ)
+  // 32分音符 = spbVal/8 steps (32分グリッドの1ステップ)
+  // ※ グリッドがどんなに細かくても、音符の長さは実際の間隔で決まる
+  function stepsToDur(steps) {
+    // 実際の間隔を4分音符=spbVal基準で判定
+    if (steps >= spbVal * 4) return '1';   // 全音符
+    if (steps >= spbVal * 2) return '2';   // 2分音符
+    if (steps >= spbVal)     return '4';   // 4分音符
+    if (steps >= spbVal / 2) return '8';   // 8分音符
+    if (steps >= spbVal / 4) return '16';  // 16分音符
+    if (steps >= spbVal / 8) return '32';  // 32分音符
+    return '32'; // それ以下は32分
   }
+
+  // 上声部用: ヒット間隔が16分相当以上なら16分に切る（32分グリッドでも16分に丸める）
+  // 理由: ハイハットを16分で打っても32分グリッドでは間隔=2steps→16分音符 ✓
+  //       ハイハットを8分で打てば間隔=4steps→8分音符 ✓
+  function stepsToDurUpper(steps) {
+    return stepsToDur(steps);
+  }
+
+  // 下声部（キック）用: 最大8分音符まで（符頭が黒塗り保証）
+  // 8分音符相当 = spbVal/2 steps
+  function stepsToDurLower(steps) {
+    var capped = Math.min(steps, Math.max(1, spbVal / 2));
+    return stepsToDur(capped);
+  }
+
+  var HALF_BEAT = Math.max(1, spbVal / 2); // 8分相当のステップ数
 
   var slots=[];
   for(var si=0;si<totalSt;si++) slots.push([]);
@@ -690,23 +698,37 @@ function buildAlphaTex(){
     while(si2<barLen){
       var evs=(slots[m*barLen+si2]||[]).filter(function(ev){return UPPER[ev.track];});
       if(evs.length>0){
+        // 次のヒットまでの距離
         var dist=barLen-si2;
         for(var nj=si2+1;nj<barLen;nj++){
           if((slots[m*barLen+nj]||[]).some(function(ev){return UPPER[ev.track];})){dist=nj-si2;break;}
         }
-        // 上声部: 4分音符まで許可（符頭の形は問わない）
-        var st=dist>=spbVal?spbVal:dist>=HALF_BEAT?HALF_BEAT:dist>=1?1:1;
+        // 音符長: 最大4分音符(spbVal)まで
+        var st=Math.min(dist, spbVal);
+        // 4/2/1/... に丸める（spbValの約数に）
+        if(st>=spbVal)          st=spbVal;       // 4分
+        else if(st>=spbVal/2)   st=spbVal/2;     // 8分
+        else if(st>=spbVal/4)   st=spbVal/4;     // 16分
+        else if(st>=spbVal/8)   st=spbVal/8;     // 32分
+        else                    st=spbVal/8||1;
+        st=Math.max(1, Math.round(st));
         var arts=evs.map(function(ev){return ART[ev.track]||'SnareHit';})
                     .filter(function(a,i,arr){return arr.indexOf(a)===i;});
-        tokens.push((arts.length===1?arts[0]+'.'+stepsToDur(st)
-          :'('+arts.join(' ')+').'+stepsToDur(st))+'{beam up}');
+        tokens.push((arts.length===1?arts[0]+'.'+stepsToDurUpper(st)
+          :'('+arts.join(' ')+').'+stepsToDurUpper(st))+'{beam up}');
         si2+=st;
       } else {
+        // 空白: まとめて休符
         var gap=0;
         while(si2+gap<barLen&&!(slots[m*barLen+si2+gap]||[]).some(function(ev){return UPPER[ev.track];})) gap++;
         var rem=gap;
         while(rem>0){
-          var rs=rem>=spbVal?spbVal:rem>=HALF_BEAT?HALF_BEAT:1;
+          var rs;
+          if(rem>=spbVal)        rs=spbVal;
+          else if(rem>=spbVal/2) rs=spbVal/2;
+          else if(rem>=spbVal/4) rs=spbVal/4;
+          else                   rs=Math.max(1,spbVal/8|0);
+          rs=Math.max(1,Math.round(rs));
           tokens.push('r.'+stepsToDur(rs));
           rem-=rs;
         }
@@ -716,8 +738,7 @@ function buildAlphaTex(){
     lines.push(tokens.join(' ')+' |');
   }
 
-  // ── Voice 2: 下声部（キック）──
-  // キックは最大8分音符相当(HALF_BEAT steps)まで → 符頭が黒塗り
+  // ── Voice 2: 下声部（キックのみ）──
   lines.push(BS+'voice');
   for(var m3=0;m3<ms;m3++){
     var barLen3=4*spbVal, tokens3=[], si4=0;
@@ -729,16 +750,20 @@ function buildAlphaTex(){
           if((slots[m3*barLen3+nj3]||[]).some(function(ev){return LOWER[ev.track];})){dist3=nj3-si4;break;}
         }
         var tillBeat=spbVal-(si4%spbVal);
-        // 最大HALF_BEAT(8分相当)かつ拍境界でクリップ
+        // 最大HALF_BEAT(8分)かつ拍境界でクリップ
         var st3=Math.min(dist3, tillBeat, HALF_BEAT);
-        st3=st3>=HALF_BEAT?HALF_BEAT:st3>=1?st3:1;
+        if(st3>=HALF_BEAT)          st3=HALF_BEAT;
+        else if(st3>=spbVal/4)      st3=spbVal/4;
+        else if(st3>=spbVal/8)      st3=spbVal/8;
+        else                        st3=Math.max(1,spbVal/8|0);
+        st3=Math.max(1,Math.round(st3));
         var arts3=evs3.map(function(ev){return ART[ev.track]||'KickHit';})
                       .filter(function(a,i,arr){return arr.indexOf(a)===i;});
         var nextSi=si4+st3;
         var isBeatEnd=(nextSi%spbVal===0)&&(nextSi<barLen3);
         var prop='{beam down'+(isBeatEnd?' beam split':'')+'}';
-        tokens3.push((arts3.length===1?arts3[0]+'.'+stepsToDur(st3)
-          :'('+arts3.join(' ')+').'+stepsToDur(st3))+prop);
+        tokens3.push((arts3.length===1?arts3[0]+'.'+stepsToDurLower(st3)
+          :'('+arts3.join(' ')+').'+stepsToDurLower(st3))+prop);
         si4+=st3;
       } else {
         var beatPos=si4%spbVal;
@@ -747,8 +772,12 @@ function buildAlphaTex(){
         for(var nk=si4+1;nk<si4+tillB&&nk<barLen3;nk++){
           if((slots[m3*barLen3+nk]||[]).some(function(ev){return LOWER[ev.track];})){distK=nk-si4;break;}
         }
-        var rs2=Math.min(distK, tillB);
-        rs2=rs2>=HALF_BEAT?HALF_BEAT:rs2>=1?rs2:1;
+        var rs2=Math.min(distK,tillB,HALF_BEAT);
+        if(rs2>=HALF_BEAT)         rs2=HALF_BEAT;
+        else if(rs2>=spbVal/4)     rs2=spbVal/4;
+        else if(rs2>=spbVal/8)     rs2=spbVal/8;
+        else                       rs2=Math.max(1,spbVal/8|0);
+        rs2=Math.max(1,Math.round(rs2));
         tokens3.push('r.'+stepsToDur(rs2)+'{beam down}');
         si4+=rs2;
       }
