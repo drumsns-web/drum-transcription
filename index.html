@@ -1,482 +1,1568 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>DrumScript</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Drum Notation DAW - TATATAN inspired</title>
+  <script src="https://cdn.jsdelivr.net/npm/@coderline/alphatab@latest/dist/alphaTab.js"></script>
   <style>
-/* ===== RESET & BASE ===== */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-:root {
-  --bg:        #0e0e0f;
-  --bg2:       #161618;
-  --bg3:       #1e1e21;
-  --border:    #2a2a2e;
-  --accent:    #c8a96e;
-  --accent2:   #e8c98e;
-  --red:       #e05555;
-  --text:      #d4d0c8;
-  --text-dim:  #6a6860;
-  --kick:      #e07a40;
-  --snare:     #5fa8e0;
-  --hihat:     #88cc88;
-  --tom12:     #c678dd;
-  --tom13:     #a55fc0;
-  --tom16:     #7e45a0;
-  --crash:     #e5c94a;
-  --ride:      #d4a820;
-  --splash:    #f0e080;
-  --auto-dim:  0.55;
-  --step-w:    38px;
-  --step-h:    38px;
-  --lane-w:    70px;
-  --header-h:  52px;
-  --foot-h:    52px;
-}
-
-html, body {
-  height: 100%;
-  background: var(--bg);
-  color: var(--text);
-  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-  font-size: 13px;
-  overflow: hidden;
-}
-
-/* ===== HEADER ===== */
-#header {
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  height: var(--header-h);
-  background: var(--bg2);
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  gap: 12px;
-  z-index: 100;
-}
-.header-left {
-  display: flex; align-items: center; gap: 8px; min-width: 110px;
-}
-.app-logo { font-size: 18px; color: var(--accent); }
-.app-name {
-  font-size: 15px; font-weight: 700; letter-spacing: 0.08em;
-  color: var(--accent2); text-transform: uppercase;
-}
-.header-center {
-  display: flex; align-items: center; gap: 8px; flex: 1; justify-content: center;
-}
-.header-right {
-  display: flex; align-items: center; gap: 8px; min-width: 60px; justify-content: flex-end;
-}
-.ctrl-btn {
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  color: var(--text);
-  border-radius: 6px;
-  padding: 6px 12px;
-  font-size: 16px;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-  min-width: 40px; min-height: 36px; line-height: 1;
-}
-.ctrl-btn:hover { background: #2a2a2e; border-color: var(--accent); }
-.ctrl-btn:active { background: var(--accent); color: #000; }
-.play-btn.playing { background: var(--accent); color: #000; border-color: var(--accent2); }
-.loop-btn.active  { background: var(--bg3); color: var(--accent); border-color: var(--accent); }
-.icon-btn { font-size: 17px; padding: 4px 10px; cursor: pointer; }
-
-/* BPM group */
-.bpm-group {
-  display: flex; align-items: center;
-  background: var(--bg); border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
-}
-.bpm-nudge {
-  background: var(--bg3); border: none; color: var(--text-dim);
-  padding: 0 10px; height: 36px; font-size: 16px; cursor: pointer;
-  font-family: inherit; transition: background 0.12s, color 0.12s; line-height: 1;
-}
-.bpm-nudge:hover  { background: #2a2a2e; color: var(--accent); }
-.bpm-nudge:active { background: var(--accent); color: #000; }
-.bpm-label {
-  display: flex; flex-direction: column; align-items: center; padding: 0 6px;
-}
-.bpm-unit { font-size: 9px; color: var(--text-dim); letter-spacing: 0.12em; text-transform: uppercase; line-height: 1; margin-bottom: 1px; }
-#bpm-input {
-  background: transparent; border: none; color: var(--accent2);
-  padding: 0; width: 44px; font-size: 15px; font-family: inherit;
-  text-align: center; outline: none;
-}
-#bpm-input::-webkit-inner-spin-button,
-#bpm-input::-webkit-outer-spin-button { -webkit-appearance: none; }
-
-/* Toast notification */
-#toast {
-  position: fixed; bottom: calc(var(--foot-h) + 12px); left: 50%;
-  transform: translateX(-50%) translateY(8px);
-  background: var(--bg3); border: 1px solid var(--accent); color: var(--accent2);
-  padding: 8px 18px; border-radius: 20px; font-size: 12px; letter-spacing: 0.04em;
-  opacity: 0; transition: opacity 0.2s, transform 0.2s;
-  pointer-events: none; z-index: 200; white-space: nowrap;
-}
-#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-
-/* ===== AUDIO BAR ===== */
-#audio-bar {
-  position: fixed;
-  top: var(--header-h); left: 0; right: 0;
-  background: var(--bg2);
-  border-bottom: 1px solid var(--border);
-  padding: 8px 12px;
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  z-index: 90;
-}
-.file-btn {
-  background: var(--bg3); border: 1px solid var(--accent); color: var(--accent);
-  border-radius: 6px; padding: 6px 12px; cursor: pointer;
-  font-size: 12px; font-family: inherit; letter-spacing: 0.05em;
-  white-space: nowrap; transition: background 0.15s;
-}
-.file-btn:hover { background: #2a2a2e; }
-.file-info {
-  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; overflow: hidden;
-}
-#file-name {
-  color: var(--text-dim); font-size: 12px; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; max-width: 180px;
-}
-#file-duration { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
-.analyze-btn {
-  background: var(--accent); border: none; color: #000; font-weight: 700;
-  border-radius: 6px; padding: 7px 18px; font-size: 13px; cursor: pointer;
-  letter-spacing: 0.06em; transition: background 0.15s, opacity 0.15s;
-  font-family: inherit; white-space: nowrap;
-}
-.analyze-btn:disabled { opacity: 0.3; cursor: default; }
-.analyze-btn:not(:disabled):hover { background: var(--accent2); }
-.hint {
-  width: 100%; font-size: 10px; color: var(--text-dim);
-  letter-spacing: 0.02em; padding-top: 2px;
-}
-
-/* ===== PROGRESS ===== */
-#progress-bar-wrap {
-  position: fixed;
-  top: calc(var(--header-h) + 68px); left: 0; right: 0;
-  height: 28px; background: var(--bg2); border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; gap: 10px; padding: 0 12px; z-index: 89;
-}
-#progress-bar-wrap[hidden] { display: none; }
-#progress-bar {
-  flex: 1; height: 6px; background: var(--border); border-radius: 3px;
-  overflow: hidden; position: relative;
-}
-#progress-bar::after {
-  content: ''; position: absolute; left: 0; top: 0; bottom: 0;
-  width: var(--progress, 0%); background: var(--accent);
-  border-radius: 3px; transition: width 0.1s;
-}
-#progress-label { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
-
-/* ===== GRID AREA ===== */
-#grid-area {
-  position: fixed;
-  top: calc(var(--header-h) + 68px); left: 0; right: 0; bottom: var(--foot-h);
-  display: flex; flex-direction: column; overflow: hidden;
-}
-#measure-ruler-wrap {
-  display: flex; height: 22px; background: var(--bg2);
-  border-bottom: 1px solid var(--border); overflow: hidden; flex-shrink: 0;
-}
-#measure-ruler-spacer {
-  width: var(--lane-w); flex-shrink: 0; border-right: 1px solid var(--border);
-}
-#measure-ruler { display: flex; overflow: hidden; }
-.ruler-measure {
-  display: flex; align-items: center; justify-content: center;
-  height: 22px; font-size: 10px; color: var(--text-dim);
-  letter-spacing: 0.05em; border-right: 1px solid var(--border); flex-shrink: 0;
-}
-#grid-scroll-wrap {
-  flex: 1; overflow-x: auto; overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin; scrollbar-color: var(--border) var(--bg);
-}
-#grid-scroll-wrap::-webkit-scrollbar { height: 6px; width: 6px; }
-#grid-scroll-wrap::-webkit-scrollbar-track { background: var(--bg); }
-#grid-scroll-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-#grid-inner { display: flex; flex-direction: row; min-height: 100%; }
-#lane-headers {
-  position: sticky; left: 0; width: var(--lane-w); flex-shrink: 0;
-  background: var(--bg2); border-right: 1px solid var(--border);
-  z-index: 10; display: flex; flex-direction: column;
-}
-.lane-header {
-  display: flex; align-items: center; justify-content: center;
-  height: var(--step-h); font-size: 10px; font-weight: 700;
-  letter-spacing: 0.08em; text-transform: uppercase;
-  border-bottom: 1px solid var(--border); padding: 0 4px;
-  color: var(--text-dim); cursor: pointer; user-select: none; transition: color 0.15s;
-}
-.lane-header[data-lane="kick"]   { color: var(--kick); }
-.lane-header[data-lane="snare"]  { color: var(--snare); }
-.lane-header[data-lane="hihat"]  { color: var(--hihat); }
-.lane-header[data-lane="tom12"]  { color: var(--tom12); }
-.lane-header[data-lane="tom13"]  { color: var(--tom13); }
-.lane-header[data-lane="tom16"]  { color: var(--tom16); }
-.lane-header[data-lane="crash"]  { color: var(--crash); }
-.lane-header[data-lane="ride"]   { color: var(--ride); }
-.lane-header[data-lane="splash"] { color: var(--splash); }
-#step-grid { display: flex; flex-direction: column; }
-.lane-row { display: flex; flex-direction: row; height: var(--step-h); }
-.step-cell {
-  width: var(--step-w); height: var(--step-h); flex-shrink: 0;
-  border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; position: relative; transition: background 0.07s;
-  -webkit-tap-highlight-color: transparent; user-select: none;
-}
-.step-cell[data-beat-start="true"]   { border-left: 1px solid #3a3a3e; }
-.step-cell[data-measure-start="true"] { border-left: 2px solid #55555a; }
-.step-cell[data-beat="0"] { background: #131315; }
-.step-cell[data-beat="1"] { background: #111113; }
-.step-cell[data-beat="2"] { background: #131315; }
-.step-cell[data-beat="3"] { background: #111113; }
-.step-cell:hover { background: #252528; }
-.step-cell .dot {
-  width: 22px; height: 22px; border-radius: 4px; transition: transform 0.07s;
-}
-.step-cell:active .dot { transform: scale(0.88); }
-.lane-row[data-lane="kick"] .step-cell.active-auto .dot,
-.lane-row[data-lane="kick"] .step-cell.active-manual .dot { background: var(--kick); }
-.lane-row[data-lane="kick"] .step-cell.active-auto .dot  { opacity: var(--auto-dim); }
-.lane-row[data-lane="snare"] .step-cell.active-auto .dot,
-.lane-row[data-lane="snare"] .step-cell.active-manual .dot { background: var(--snare); }
-.lane-row[data-lane="snare"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
-.lane-row[data-lane="hihat"] .step-cell.active-auto .dot,
-.lane-row[data-lane="hihat"] .step-cell.active-manual .dot { background: var(--hihat); }
-.lane-row[data-lane="hihat"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
-.lane-row[data-lane="tom12"] .step-cell.active-auto .dot,
-.lane-row[data-lane="tom12"] .step-cell.active-manual .dot { background: var(--tom12); }
-.lane-row[data-lane="tom12"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
-.lane-row[data-lane="tom13"] .step-cell.active-auto .dot,
-.lane-row[data-lane="tom13"] .step-cell.active-manual .dot { background: var(--tom13); }
-.lane-row[data-lane="tom13"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
-.lane-row[data-lane="tom16"] .step-cell.active-auto .dot,
-.lane-row[data-lane="tom16"] .step-cell.active-manual .dot { background: var(--tom16); }
-.lane-row[data-lane="tom16"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
-.lane-row[data-lane="crash"] .step-cell.active-auto .dot,
-.lane-row[data-lane="crash"] .step-cell.active-manual .dot { background: var(--crash); }
-.lane-row[data-lane="crash"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
-.lane-row[data-lane="ride"] .step-cell.active-auto .dot,
-.lane-row[data-lane="ride"] .step-cell.active-manual .dot  { background: var(--ride); }
-.lane-row[data-lane="ride"] .step-cell.active-auto .dot    { opacity: var(--auto-dim); }
-.lane-row[data-lane="splash"] .step-cell.active-auto .dot,
-.lane-row[data-lane="splash"] .step-cell.active-manual .dot { background: var(--splash); }
-.lane-row[data-lane="splash"] .step-cell.active-auto .dot   { opacity: var(--auto-dim); }
-.step-cell.playhead { background: rgba(200, 169, 110, 0.12) !important; }
-.step-cell.playhead::after {
-  content: ''; position: absolute; top: 0; bottom: 0; left: 0;
-  width: 2px; background: var(--accent); border-radius: 1px;
-}
-
-/* ===== TOOLBAR ===== */
-#toolbar {
-  position: fixed; bottom: 0; left: 0; right: 0;
-  height: var(--foot-h); background: var(--bg2);
-  border-top: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: center;
-  gap: 8px; padding: 0 12px; z-index: 100;
-}
-.tool-btn {
-  background: var(--bg3); border: 1px solid var(--border); color: var(--text);
-  border-radius: 6px; padding: 7px 14px; font-size: 12px; cursor: pointer;
-  font-family: inherit; letter-spacing: 0.04em;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
-  min-height: 36px;
-}
-.tool-btn:hover  { background: #252528; border-color: var(--accent); }
-.tool-btn.active { background: #1e1e18; border-color: var(--accent); color: var(--accent); }
-.tool-btn.danger { color: var(--red); }
-.tool-btn.danger:hover { border-color: var(--red); }
-.toolbar-sep {
-  width: 1px; height: 24px; background: var(--border); margin: 0 4px; flex-shrink: 0;
-}
-.export-btn { color: var(--accent); border-color: #3a3520; }
-.export-btn:hover { border-color: var(--accent); background: #1e1e14; }
-
-@media (max-width: 480px) {
-  :root { --step-w: 32px; --step-h: 36px; --lane-w: 58px; }
-  .app-name { display: none; }
-  .tool-btn { padding: 7px 10px; font-size: 11px; }
-}
+    :root{
+      --bg:#0d0d1a;
+      --panel:#181830;
+      --panel2:#1e1e3a;
+      --panel3:#242448;
+      --text:#f0f0ff;
+      --text-sub:#c0c0e0;
+      --muted:#9090c0;
+      --border:rgba(160,160,255,0.2);
+      --border-bright:rgba(160,160,255,0.4);
+      --accent1:#4ecdc4;
+      --accent2:#ffe66d;
+      --accent3:#ff6b35;
+      --accent4:#c77dff;
+      --step-off:#1a1a32;
+      --step-on:#2a3958;
+      --play:#ffffff;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      background:var(--bg);
+      color:var(--text);
+      font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+    }
+    body::before{
+      content:'';
+      position:fixed; inset:0;
+      background-image:
+        linear-gradient(rgba(100,100,200,0.03) 1px,transparent 1px),
+        linear-gradient(90deg,rgba(100,100,200,0.03) 1px,transparent 1px);
+      background-size:32px 32px;
+      pointer-events:none;
+      z-index:0;
+    }
+    .app{
+      position:relative; z-index:1;
+      padding:10px;
+      min-height:100vh;
+    }
+    .panel{
+      background:var(--panel2);
+      border:1px solid var(--border);
+      border-radius:16px;
+      overflow:hidden;
+      box-shadow:0 10px 30px rgba(0,0,0,.22);
+    }
+    .toolbar{
+      position:sticky; top:0; z-index:10;
+      display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between;
+      padding:10px;
+      margin-bottom:10px;
+      background:rgba(13,13,26,.92);
+      backdrop-filter:blur(10px);
+      border:1px solid var(--border);
+      border-radius:16px;
+    }
+    .toolbar-left,.toolbar-right{display:flex; flex-wrap:wrap; gap:8px; align-items:center;}
+    .btn,.pill,.file-label{
+      min-height:44px;
+      padding:0 14px;
+      border-radius:12px;
+      border:1px solid var(--border-bright);
+      background:var(--panel3);
+      color:var(--text);
+      cursor:pointer;
+      font:inherit;
+    }
+    .btn.primary{background:linear-gradient(135deg,#a8ff78,#4ecdc4);color:#081018;border:none;font-weight:700}
+    .btn.stop{background:linear-gradient(135deg,#ff6b35,#ff6b9d);border:none}
+    .btn.warn{background:linear-gradient(135deg,#ffe66d,#ff9f43);color:#111;border:none}
+    .pill{
+      display:flex; align-items:center; gap:8px; padding:0 10px;
+      background:var(--panel);
+    }
+    .pill label{
+      color:var(--text-sub); font-size:.9rem;
+    }
+    input[type=number], select, textarea{
+      font:inherit;
+    }
+    .num, .sel{
+      background:transparent; color:var(--text); border:none; outline:none;
+    }
+    .num{width:72px}
+    .gm-bar{
+      display:flex; flex-wrap:wrap; gap:8px;
+      margin-bottom:10px;
+    }
+    .gm-group{
+      display:flex; border:1px solid var(--border); border-radius:12px; overflow:hidden;
+      background:var(--panel);
+    }
+    .gm-title{
+      padding:10px 10px; font-size:.78rem; color:var(--text-sub); letter-spacing:.08em;
+      border-right:1px solid var(--border);
+      display:flex; align-items:center;
+    }
+    .gm-btn{
+      min-height:40px; padding:0 10px; border:none; background:transparent; color:var(--muted); cursor:pointer;
+      border-right:1px solid rgba(255,255,255,.06);
+      font-weight:600;
+    }
+    .gm-btn:last-child{border-right:none}
+    .gm-btn.active{background:linear-gradient(135deg,#4ecdc4,#a8ff78); color:#081018}
+    .main{
+      display:grid; gap:10px;
+    }
+    .panel-head{
+      padding:12px 14px 10px; border-bottom:1px solid var(--border);
+      display:flex; flex-wrap:wrap; justify-content:space-between; gap:8px;
+    }
+    .panel-head h2{margin:0; font-size:1.02rem}
+    .panel-head p{margin:0; color:var(--text-sub); font-size:.9rem}
+    .grid-scroll,.json-scroll{overflow:auto; padding:12px}
+    .score-scroll{overflow:auto; padding:12px; background:#fff; border-radius:12px; margin:8px}
+    .ruler,.row{
+      display:grid;
+      grid-template-columns:120px 1fr;
+      gap:8px;
+      min-width:max-content;
+      align-items:center;
+    }
+    .ruler{margin-bottom:8px}
+    .r-label,.label{
+      border:1px solid var(--border); background:var(--panel3); border-radius:12px; min-height:44px;
+      padding:8px 10px; display:flex; flex-direction:column; justify-content:center;
+    }
+    .l1{font-weight:700}
+    .l2{font-size:.78rem; color:var(--text-sub)}
+    .cells{
+      display:grid; grid-auto-flow:column; gap:4px;
+      grid-auto-columns:32px;
+    }
+    .r-cell{
+      height:26px; display:flex; align-items:center; justify-content:center;
+      color:var(--text-sub); font-size:.72rem;
+    }
+    .cell{
+      width:32px; height:46px; border:none; cursor:pointer; border-radius:10px;
+      background:var(--step-off);
+      position:relative;
+      border-left:1px solid rgba(255,255,255,.07);
+      transition:background .08s, transform .08s, box-shadow .08s;
+    }
+    .cell:hover{background:#242448}
+    .cell:active{transform:scale(.96)}
+    .cell.on{background:var(--accentColor,#4ecdc4); box-shadow:inset 0 0 0 1px rgba(255,255,255,.15)}
+    .cell.playing{box-shadow:inset 0 0 0 2px rgba(255,255,255,.9); filter:brightness(1.25)}
+    .cell.beat{border-left:1px solid rgba(255,255,255,.18)}
+    .cell.bar{border-left:2px solid rgba(255,230,109,.35)}
+    .cell.orn-accent{border-top:3px solid #ff6b35!important}
+    .cell.orn-ghost{outline:2px dashed rgba(180,180,255,.5); outline-offset:-2px}
+    .cell.orn-buzz{background-image:repeating-linear-gradient(45deg,transparent,transparent 4px, rgba(255,107,157,.12) 4px, rgba(255,107,157,.12) 8px)}
+    .badge{
+      position:absolute; top:2px; left:2px; font-size:9px; line-height:1; z-index:2; pointer-events:none;
+      padding:1px 3px; border-radius:3px; font-weight:bold; font-family:monospace;
+    }
+    .badge.fl{background:#ffe66d;color:#1a1400}
+    .badge.dr{background:#ff9f43;color:#1a0800}
+    .badge.gh{background:rgba(160,160,220,.9);color:#080810}
+    .badge.ac{background:#ff6b35;color:#fff}
+    .badge.rm{background:#4ecdc4;color:#080810}
+    .badge.cr{background:#c77dff;color:#080810}
+    .badge.bz{background:#ff6b9d;color:#fff}
+    .note-label{
+      position:absolute; bottom:2px; left:0; right:0; text-align:center; font-size:8px; color:rgba(255,255,255,.85);
+      pointer-events:none;
+    }
+    .subbar{
+      padding:0 14px 14px; color:var(--text-sub); font-size:.9rem; display:flex; flex-wrap:wrap; gap:12px;
+    }
+    .legend{display:flex; gap:6px; flex-wrap:wrap}
+    .legend span{padding:4px 8px; border:1px solid var(--border); border-radius:999px; font-size:.8rem; background:var(--panel)}
+    .json-text{
+      width:100%; min-height:150px; resize:vertical;
+      background:#0f141a; color:var(--text); border:1px solid var(--border); border-radius:12px; padding:12px;
+    }
+    .json-actions{display:flex; gap:8px; flex-wrap:wrap; padding-top:10px}
+    .hint{color:var(--text-sub); font-size:.86rem}
+    .orn-pop{
+      position:fixed; z-index:50; display:none;
+      background:#0f0f28; border:1px solid rgba(255,230,109,.28); border-radius:12px; padding:8px; min-width:170px;
+      box-shadow:0 12px 32px rgba(0,0,0,.5);
+    }
+    .orn-pop.open{display:block}
+    .orn-title{font-size:.78rem; color:var(--text-sub); letter-spacing:.08em; padding:0 4px 6px; border-bottom:1px solid var(--border); margin-bottom:6px}
+    .orn-item{
+      display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:8px; cursor:pointer; font-size:.92rem;
+    }
+    .orn-item:hover{background:rgba(255,255,255,.08)}
+    .orn-item.active{color:#ffe66d}
+    @media (max-width:640px){
+      .app{padding:8px}
+      .ruler,.row{grid-template-columns:82px 1fr}
+      .l2{display:none}
+      .cells{grid-auto-columns:34px}
+      .cell{width:34px}
+    }
   </style>
 </head>
 <body>
-
-  <header id="header">
-    <div class="header-left">
-      <span class="app-logo">▣</span>
-      <span class="app-name">DrumScript</span>
+<div class="app">
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <button id="playBtn" class="btn primary">▶ PLAY</button>
+      <button id="stopBtn" class="btn stop">■ STOP</button>
+      <button id="clearBtn" class="btn">CLEAR</button>
     </div>
-    <div class="header-center">
-      <button id="btn-play" class="ctrl-btn play-btn" title="再生 / 一時停止">▶</button>
-      <button id="btn-stop" class="ctrl-btn" title="停止">■</button>
-      <button id="btn-loop" class="ctrl-btn loop-btn" title="ループ ON/OFF">⟳</button>
-      <div class="bpm-group">
-        <button class="bpm-nudge" id="bpm-down" title="BPM -1">−</button>
-        <label class="bpm-label">
-          <span class="bpm-unit">BPM</span>
-          <input id="bpm-input" type="number" value="120" min="40" max="240">
-        </label>
-        <button class="bpm-nudge" id="bpm-up" title="BPM +1">＋</button>
+    <div class="toolbar-right">
+      <div class="pill" style="gap:6px">
+        <label>BPM</label>
+        <input id="bpmSlider" type="range" min="40" max="240" value="120" style="width:70px;accent-color:#a8ff78;cursor:pointer;vertical-align:middle">
+        <input id="bpmInput" class="num" type="number" min="40" max="240" value="120">
       </div>
+      <div class="pill">
+        <label>BARS</label>
+        <select id="barsInput" class="sel">
+          <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option>
+        </select>
+      </div>
+      <div class="pill">
+        <label>SWING</label>
+        <select id="feelInput" class="sel">
+          <option value="straight">STRAIGHT</option>
+          <option value="swing8">SWING 8</option>
+          <option value="shuffle16">SHUFFLE 16</option>
+        </select>
+      </div>
+      <button id="saveJsonBtn" class="btn">JSON保存</button>
+      <button id="samplerBtn" class="btn">&#127925; 音源</button>
+      <button id="analyzeBtn" class="btn" style="background:#1a3a1a;border-color:#a8ff78;color:#a8ff78">&#127908; 解析</button>
+      <button id="saveHtmlBtn" class="btn">HTML保存</button>
+      <button id="midiBtn" class="btn warn">MIDI</button>
+      <label class="file-label">JSON読込<input id="jsonFile" type="file" accept="application/json,.json" hidden></label>
     </div>
-    <div class="header-right">
-      <button id="btn-save" class="ctrl-btn icon-btn" title="JSONで保存">💾</button>
-      <label  class="ctrl-btn icon-btn" title="JSONを読み込む" for="json-input">📂
-        <input id="json-input" type="file" accept=".json,application/json" hidden>
-      </label>
-    </div>
-  </header>
-
-  <section id="audio-bar">
-    <label class="file-btn" for="file-input">
-      <span>♪ 音源を開く</span>
-      <input id="file-input" type="file" accept=".wav,.mp3,.m4a,audio/*" hidden>
-    </label>
-    <div class="file-info">
-      <span id="file-name">未選択</span>
-      <span id="file-duration"></span>
-    </div>
-    <button id="btn-analyze" class="analyze-btn" disabled>解析</button>
-    <div id="analyze-hint" class="hint">Moises等で分離済みのドラム音源を読み込んでください（未分離音源では精度が低下します）</div>
-  </section>
-
-  <div id="progress-bar-wrap" hidden>
-    <div id="progress-bar"></div>
-    <span id="progress-label">解析中...</span>
   </div>
 
-  <main id="grid-area">
-    <div id="measure-ruler-wrap">
-      <div id="measure-ruler-spacer"></div>
-      <div id="measure-ruler"></div>
+  <div class="gm-bar">
+    <div class="gm-group">
+      <div class="gm-title">STRAIGHT</div>
+      <button class="gm-btn" data-mode="q">4分</button>
+      <button class="gm-btn" data-mode="e">8分</button>
+      <button class="gm-btn active" data-mode="s">16分</button>
+      <button class="gm-btn" data-mode="t32">32分</button>
     </div>
-    <div id="grid-scroll-wrap">
-      <div id="grid-inner">
-        <div id="lane-headers"></div>
-        <div id="step-grid"></div>
+    <div class="gm-group">
+      <div class="gm-title">TUPLET</div>
+      <button class="gm-btn" data-mode="t3">3連</button>
+      <button class="gm-btn" data-mode="t5">5連</button>
+      <button class="gm-btn" data-mode="t6">6連</button>
+      <button class="gm-btn" data-mode="t7">7連</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>ドラムグリッド</h2>
+        <p>リアルタイム譜面表示は維持 / TATATAN風のリズムモード・装飾音符対応</p>
       </div>
+      <div class="grid-scroll">
+        <div id="gridRoot"></div>
+      </div>
+      <div class="subbar">
+        <div id="statusLine"></div>
+        <div class="legend">
+          <span>右クリック / 長押し: Ornament</span>
+          <span>FL</span><span>DR</span><span>GH</span><span>AC</span><span>RM</span><span>CR</span><span>BZ</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>ドラム譜面</h2>
+        <p>AlphaTab による本格記譜</p>
+      </div>
+      <div class="score-scroll">
+        <div id="scoreDiv"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>JSON</h2>
+        <p>貼り付け / 復元 / コピー用</p>
+      </div>
+      <div class="json-scroll">
+        <textarea id="jsonArea" class="json-text"></textarea>
+        <div class="json-actions">
+          <button id="applyJsonBtn" class="btn">このJSONを適用</button>
+          <button id="copyJsonBtn" class="btn">JSONコピー</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div id="ornPop" class="orn-pop"></div>
+<div id="analyzeModal" style="display:none;position:fixed;inset:0;z-index:100;background:rgba(0,0,0,0.8);align-items:center;justify-content:center">
+  <div style="background:#13132a;border:1px solid rgba(168,255,120,0.3);border-radius:16px;width:min(480px,94vw);display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid rgba(168,255,120,0.2);font-weight:700;color:#a8ff78">
+      <span>&#127908; ドラム音源解析</span>
+      <button onclick="document.getElementById('analyzeModal').style.display='none'" class="btn" style="min-height:32px;padding:0 10px">&#10005;</button>
     </div>
-  </main>
+    <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+      <div style="font-size:.82rem;color:#9090b8;background:#0a0a1a;border-radius:8px;padding:10px 12px;border:1px solid rgba(168,255,120,0.15)">
+        Moises等で分離済みのドラム単体音源を読み込んでください。<br>未分離音源では精度が低下します。
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label class="btn" style="cursor:pointer;flex:1;text-align:center">
+          &#128193; 音源を選択
+          <input id="analyzeFileInput" type="file" accept=".wav,.mp3,.m4a,audio/*" hidden>
+        </label>
+        <span id="analyzeFileName" style="font-size:.82rem;color:#9090b8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">未選択</span>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span style="font-size:.82rem;color:#9090b8;white-space:nowrap">BPM（空欄=自動）</span>
+        <input id="analyzeBpmInput" type="number" min="40" max="240" placeholder="自動検出"
+          style="background:#0a0a1a;border:1px solid var(--border);color:#ffe66d;border-radius:6px;padding:4px 8px;width:90px;font-size:.9rem">
+        <span style="font-size:.82rem;color:#9090b8;white-space:nowrap">小節数</span>
+        <select id="analyzeBarsInput" style="background:#0a0a1a;border:1px solid var(--border);color:#fff;border-radius:6px;padding:4px 8px">
+          <option value="1">1</option><option value="2">2</option><option value="4" selected>4</option><option value="8">8</option>
+        </select>
+      </div>
+      <div id="analyzeProgressWrap" style="display:none">
+        <div style="background:#1a1a2e;border-radius:4px;height:8px;overflow:hidden">
+          <div id="analyzeProgressBar" style="height:100%;width:0%;background:#a8ff78;transition:width .15s;border-radius:4px"></div>
+        </div>
+        <div id="analyzeProgressLabel" style="font-size:.8rem;color:#9090b8;margin-top:4px">解析中...</div>
+      </div>
+      <button id="analyzeStartBtn" class="btn" disabled
+        style="background:#a8ff78;color:#000;font-weight:700;border:none;font-size:1rem;padding:10px">
+        解析開始
+      </button>
+      <div id="analyzeResult" style="font-size:.82rem;color:#a8ff78;display:none"></div>
+    </div>
+  </div>
+</div>
 
-  <div id="toast"></div>
-
-  <footer id="toolbar">
-    <button id="btn-draw"  class="tool-btn active" data-mode="draw">✏ 描画</button>
-    <button id="btn-erase" class="tool-btn"         data-mode="erase">✕ 消去</button>
-    <button id="btn-clear" class="tool-btn danger">🗑 全消去</button>
-    <button id="btn-demo"  class="tool-btn">▣ デモ</button>
-    <div class="toolbar-sep"></div>
-    <button id="btn-png"  class="tool-btn export-btn">🖼 PNG</button>
-    <button id="btn-pdf"  class="tool-btn export-btn">📄 PDF</button>
-  </footer>
+<div id="samplerModal" style="display:none;position:fixed;inset:0;z-index:100;background:rgba(0,0,0,0.75);align-items:center;justify-content:center">
+  <div style="background:#13132a;border:1px solid rgba(160,160,255,0.3);border-radius:16px;width:min(520px,94vw);max-height:80vh;display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid rgba(160,160,255,0.2);font-weight:700">
+      <span>&#127925; 音源設定</span>
+      <button onclick="document.getElementById('samplerModal').style.display='none'" class="btn" style="min-height:32px;padding:0 10px">&#10005;</button>
+    </div>
+    <div id="samplerBody" style="overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px"></div>
+  </div>
+</div>
+<div id="velPop" style="display:none;position:fixed;z-index:60;background:#0f0f28;border:1px solid rgba(255,230,109,.28);border-radius:12px;padding:12px 14px;min-width:160px;box-shadow:0 12px 32px rgba(0,0,0,.6)">
+  <div style="font-size:.78rem;color:#9090b8;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:8px">ベロシティ</div>
+  <input id="velSlider" type="range" min="1" max="127" value="100" style="width:100%;accent-color:#ffe66d;display:block;margin-bottom:4px">
+  <div id="velVal" style="text-align:center;font-size:1.1rem;font-weight:700;color:#ffe66d">100</div>
+  <div style="display:flex;gap:6px;margin-top:8px">
+    <button onclick="applyVelocity()" class="btn" style="flex:1;min-height:32px;font-size:.85rem">適用</button>
+    <button onclick="document.getElementById('velPop').style.display='none'" class="btn" style="min-height:32px;padding:0 8px">&#10005;</button>
+  </div>
+</div>
 
 <script>
-// ============================================================
-//  DrumScript – MVP
-// ============================================================
-
-// ── 1. CONSTANTS & STATE ────────────────────────────────────
-
-const LANES = [
-  { id: 'crash',  name: 'CRASH',   color: '#e5c94a' },
-  { id: 'splash', name: 'SPLASH',  color: '#f0e080' },
-  { id: 'ride',   name: 'RIDE',    color: '#d4a820' },
-  { id: 'hihat',  name: 'H.HAT',   color: '#88cc88' },
-  { id: 'tom12',  name: 'TOM 12"', color: '#c678dd' },
-  { id: 'tom13',  name: 'TOM 13"', color: '#a55fc0' },
-  { id: 'tom16',  name: 'TOM 16"', color: '#7e45a0' },
-  { id: 'snare',  name: 'SNARE',   color: '#5fa8e0' },
-  { id: 'kick',   name: 'KICK',    color: '#e07a40' },
+const STORAGE_KEY = 'tatatan-inspired-drum-notation';
+const GRID_MODES = {
+  q:   { label:'4分',  stepsPerBeat:1 },
+  e:   { label:'8分',  stepsPerBeat:2 },
+  s:   { label:'16分', stepsPerBeat:4 },
+  t32: { label:'32分', stepsPerBeat:8 },
+  t3:  { label:'3連',  stepsPerBeat:3 },
+  t5:  { label:'5連',  stepsPerBeat:5 },
+  t6:  { label:'6連',  stepsPerBeat:6 },
+  t7:  { label:'7連',  stepsPerBeat:7 }
+};
+const ORNAMENTS = [
+  { id:'none',  label:'なし', short:'' },
+  { id:'flam',  label:'フラム', short:'FL' },
+  { id:'drag',  label:'ドラッグ', short:'DR' },
+  { id:'ghost', label:'ゴースト', short:'GH' },
+  { id:'accent',label:'アクセント', short:'AC' },
+  { id:'rim',   label:'リムショット', short:'RM' },
+  { id:'cross', label:'クロススティック', short:'CR' },
+  { id:'buzz',  label:'バズロール', short:'BZ' }
+];
+const TRACKS = [
+  { id:'crash',       label:'Crash',      short:'CR', accent:'#c77dff', group:'cymbal', scoreY:46,  voice:'upper', midiNote:49, xHead:true },
+  { id:'ride',        label:'Ride',       short:'RD', accent:'#9b5de5', group:'cymbal', scoreY:53,  voice:'upper', midiNote:51, xHead:true },
+  { id:'cup',         label:'Ride Cup',   short:'CU', accent:'#7b4de5', group:'cymbal', scoreY:53,  voice:'upper', midiNote:53, xHead:true },
+  { id:'open_hihat',  label:'Open HH',    short:'OH', accent:'#ffd166', group:'hihat',  scoreY:53,  voice:'upper', midiNote:46, xHead:true },
+  { id:'closed_hihat',label:'Closed HH',  short:'CH', accent:'#ffe66d', group:'hihat',  scoreY:60,  voice:'upper', midiNote:42, xHead:true },
+  { id:'tom10',       label:'Tom 10"',    short:'T1', accent:'#f87171', group:'tom',    scoreY:81,  voice:'lower', midiNote:48 },
+  { id:'tom12',       label:'Tom 12"',    short:'T2', accent:'#fb923c', group:'tom',    scoreY:88,  voice:'lower', midiNote:47 },
+  { id:'tom16',       label:'Floor Tom',  short:'FT', accent:'#fbbf24', group:'tom',    scoreY:116, voice:'lower', midiNote:43 },
+  { id:'snare',       label:'Snare',      short:'S',  accent:'#ff6b35', group:'snare',  scoreY:102, voice:'lower', midiNote:38 },
+  { id:'rimshot',     label:'Closed Rim', short:'RM', accent:'#a0c4ff', group:'snare',  scoreY:109, voice:'lower', midiNote:37 },
+  { id:'kick',        label:'Kick',       short:'K',  accent:'#4ecdc4', group:'kick',   scoreY:123, voice:'lower', midiNote:36 },
 ];
 
-const STEPS_PER_MEASURE = 16;
-const DEFAULT_BPM       = 120;
+const DEFAULT = {
+  bpm: 120,
+  measures: 1,
+  timeSignature: '4/4',
+  gridMode: 's',
+  feelMode: 'straight',
+  events: [
+    { track:'kick', step:0, velocity:112 },
+    { track:'kick', step:8, velocity:112 },
+    { track:'snare', step:4, velocity:102 },
+    { track:'snare', step:12, velocity:102 },
+    { track:'closed_hihat', step:0, velocity:80 },
+    { track:'closed_hihat', step:2, velocity:80 },
+    { track:'closed_hihat', step:4, velocity:80 },
+    { track:'closed_hihat', step:6, velocity:80 },
+    { track:'closed_hihat', step:8, velocity:80 },
+    { track:'closed_hihat', step:10, velocity:80 },
+    { track:'closed_hihat', step:12, velocity:80 },
+    { track:'closed_hihat', step:14, velocity:80 }
+  ],
+  ornaments: {}
+};
 
 const state = {
-  bpm:         DEFAULT_BPM,
-  measures:    4,
-  editMode:    'draw',
-  isPlaying:   false,
-  isLooping:   true,
-  currentStep: -1,
-  steps:       {},
-  audioBuffer: null,
-  audioFileName: null,
-  audioDuration: 0,
+  pattern: loadPattern(),
+  isPlaying: false,
+  scheduleStep: 0,   // スケジューリング用（先読み）
+  drawStep: 0,       // 表示用（現在再生中の拍）
+  nextNoteTime: 0,
+  scheduleAheadTime: 0.12,
+  lookahead: 25,
+  schedulerId: null,
+  rafId: null,
+  audioContext: null
 };
 
-function initSteps(measures) {
-  const total = measures * STEPS_PER_MEASURE;
-  LANES.forEach(lane => {
-    state.steps[lane.id] = Array.from({ length: total }, () => ({
-      active: false, sourceType: 'manual',
-    }));
+const gridRoot = document.getElementById('gridRoot');
+const scoreSvg = document.getElementById('scoreSvg');
+const statusLine = document.getElementById('statusLine');
+const bpmInput = document.getElementById('bpmInput');
+const barsInput = document.getElementById('barsInput');
+const feelInput = document.getElementById('feelInput');
+const jsonArea = document.getElementById('jsonArea');
+const ornPop = document.getElementById('ornPop');
+
+function totalSteps(){
+  return state.pattern.measures * 4 * GRID_MODES[state.pattern.gridMode].stepsPerBeat;
+}
+function spb(){ return GRID_MODES[state.pattern.gridMode].stepsPerBeat; }
+
+function clampBpm(v){ return Math.max(40, Math.min(240, Number(v)||120)); }
+function clampMeasures(v){ return Math.max(1, Math.min(4, Number(v)||1)); }
+
+function normalizePattern(raw){
+  const gridMode = GRID_MODES[raw.gridMode] ? raw.gridMode : 's';
+  const measures = clampMeasures(raw.measures);
+  const feelMode = ['straight','swing8','shuffle16'].includes(raw.feelMode) ? raw.feelMode : 'straight';
+  const max = measures * 4 * GRID_MODES[gridMode].stepsPerBeat;
+  const events = Array.isArray(raw.events) ? raw.events.filter(e => e.step < max) : [];
+  const ornaments = raw.ornaments && typeof raw.ornaments === 'object' ? raw.ornaments : {};
+  return {
+    bpm: clampBpm(raw.bpm),
+    measures,
+    timeSignature: '4/4',
+    gridMode,
+    feelMode,
+    events: events.sort((a,b)=>a.step-b.step),
+    ornaments
+  };
+}
+function loadPattern(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return structuredClone(DEFAULT);
+    return normalizePattern(JSON.parse(raw));
+  }catch{
+    return structuredClone(DEFAULT);
+  }
+}
+function savePattern(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state.pattern));
+  jsonArea.value = JSON.stringify(state.pattern, null, 2);
+}
+function activeEvent(track, step){
+  return state.pattern.events.find(e => e.track===track && e.step===step);
+}
+function toggleStep(track, step){
+  const found = activeEvent(track, step);
+  if(found){
+    state.pattern.events = state.pattern.events.filter(e => !(e.track===track && e.step===step));
+    delete state.pattern.ornaments[ornKey(track, step)];
+  }else{
+    state.pattern.events.push({ track, step, velocity: 100 });
+    state.pattern.events.sort((a,b)=>a.step-b.step);
+  }
+  savePattern();
+  renderAll();
+}
+function ornKey(track, step){ return `${state.pattern.gridMode}|${track}|${step}`; }
+function getOrn(track, step){ return state.pattern.ornaments[ornKey(track, step)] || null; }
+function setOrn(track, step, type){
+  const key = ornKey(track, step);
+  if(!type || type==='none') delete state.pattern.ornaments[key];
+  else state.pattern.ornaments[key] = type;
+  savePattern();
+  renderAll();
+}
+
+function renderGrid(){
+  const tot = totalSteps();
+  let html = '';
+  html += '<div class="ruler"><div class="r-label"><div class="l1">Inst</div><div class="l2">'+GRID_MODES[state.pattern.gridMode].label+'</div></div><div class="cells">';
+  for(let s=0;s<tot;s++){
+    const beatIndex = Math.floor(s / spb()) + 1;
+    html += `<div class="r-cell">${beatIndex}</div>`;
+  }
+  html += '</div></div>';
+
+  for(const tr of TRACKS){
+    html += '<div class="row">';
+    html += `<div class="label"><div class="l1" style="color:${tr.accent}">${tr.short}</div><div class="l2">${tr.label}</div></div><div class="cells">`;
+    for(let s=0;s<tot;s++){
+      const ev = activeEvent(tr.id, s);
+      const orn = getOrn(tr.id, s);
+      const cls = ['cell'];
+      if(ev) cls.push('on');
+      if(state.isPlaying && s===state.drawStep) cls.push('playing');
+      if(s % spb()===0) cls.push('beat');
+      if(s % (spb()*4)===0) cls.push('bar');
+      if(orn==='accent') cls.push('orn-accent');
+      if(orn==='ghost') cls.push('orn-ghost');
+      if(orn==='buzz') cls.push('orn-buzz');
+      html += `<button class="${cls.join(' ')}" data-track="${tr.id}" data-step="${s}" style="${ev?`--accentColor:${tr.accent}`:''}">`;
+      if(orn){
+        const short = ORNAMENTS.find(o=>o.id===orn)?.short || '';
+        html += `<span class="badge ${short.toLowerCase()}">${short}</span>`;
+      }
+      if(ev){
+        html += `<span class="note-label">${tr.short}</span>`;
+        const vw=Math.round((ev.velocity||100)/127*100);
+        html += '<span style="position:absolute;bottom:2px;left:3px;right:3px;height:3px;background:rgba(255,255,255,0.45);border-radius:2px;pointer-events:none;width:'+vw+'%"></span>';
+      }
+      html += '</button>';
+    }
+    html += '</div></div>';
+  }
+  gridRoot.innerHTML = html;
+  attachGridEvents();
+}
+function renderPlayhead(){
+  // グリッド全体を再生成せず、playing クラスだけ付け替える（高効率）
+  gridRoot.querySelectorAll('.cell').forEach(btn=>{
+    const s = Number(btn.dataset.step);
+    btn.classList.toggle('playing', s === state.drawStep);
   });
 }
+function attachGridEvents(){
+  let longPressTimer = null;
+  let pressTarget = null;
+  gridRoot.querySelectorAll('.cell').forEach(btn=>{
+    btn.addEventListener('click', e=>{
+      if(btn.dataset.longpress === '1'){
+        btn.dataset.longpress = '0';
+        return;
+      }
+      toggleStep(btn.dataset.track, Number(btn.dataset.step));
+    });
+    btn.addEventListener('contextmenu', e=>{
+      e.preventDefault();
+      if(btn.classList.contains('on')){
+        showVelPop(btn.dataset.track, Number(btn.dataset.step), e.clientX, e.clientY);
+      }else{
+        openOrnPopup(btn.dataset.track, Number(btn.dataset.step), e.clientX, e.clientY);
+      }
+    });
+    btn.addEventListener('touchstart', e=>{
+      pressTarget = btn;
+      longPressTimer = setTimeout(()=>{
+        btn.dataset.longpress = '1';
+        const touch = e.touches[0];
+        openOrnPopup(btn.dataset.track, Number(btn.dataset.step), touch.clientX, touch.clientY);
+      }, 450);
+    }, {passive:true});
+    btn.addEventListener('touchend', ()=>{
+      clearTimeout(longPressTimer);
+    });
+    btn.addEventListener('touchmove', ()=> clearTimeout(longPressTimer), {passive:true});
+  });
+}
+function openOrnPopup(track, step, x, y){
+  const current = getOrn(track, step) || 'none';
+  ornPop.innerHTML = `<div class="orn-title">${track.toUpperCase()} / STEP ${step+1}</div>` +
+    ORNAMENTS.map(o=>`
+      <div class="orn-item ${o.id===current?'active':''}" data-track="${track}" data-step="${step}" data-orn="${o.id}">
+        <span style="min-width:24px">${o.short||'--'}</span><span>${o.label}</span>
+      </div>
+    `).join('');
+  ornPop.classList.add('open');
+  const w = 180, h = 270;
+  const px = Math.min(window.innerWidth - w - 8, Math.max(8, x));
+  const py = Math.min(window.innerHeight - h - 8, Math.max(8, y));
+  ornPop.style.left = px + 'px';
+  ornPop.style.top = py + 'px';
+}
+document.addEventListener('click', e=>{
+  if(!e.target.closest('.orn-pop')) ornPop.classList.remove('open');
+});
+ornPop.addEventListener('click', e=>{
+  const item = e.target.closest('.orn-item');
+  if(!item) return;
+  setOrn(item.dataset.track, Number(item.dataset.step), item.dataset.orn);
+  ornPop.classList.remove('open');
+});
 
-// ── 2. DATA HELPERS ─────────────────────────────────────────
+function renderStatus(){
+  statusLine.textContent = `BPM ${state.pattern.bpm} / ${state.pattern.measures}小節 / ${GRID_MODES[state.pattern.gridMode].label} / ${state.pattern.feelMode.toUpperCase()} / ノート ${state.pattern.events.length}`;
+}
+function renderControls(){
+  bpmInput.value = state.pattern.bpm;
+  barsInput.value = state.pattern.measures;
+  feelInput.value = state.pattern.feelMode;
+  document.querySelectorAll('.gm-btn').forEach(btn=>{
+    btn.classList.toggle('active', btn.dataset.mode === state.pattern.gridMode);
+  });
+}
+// ── AlphaTab インスタンス管理 ──────────────────────────────
+var _atApi = null;   // alphaTab.AlphaTabApi インスタンス
+var _atDiv = null;   // マウント先div
 
-function setStep(laneId, idx, active, sourceType = 'manual') {
-  if (!state.steps[laneId]) return;
-  state.steps[laneId][idx] = { active, sourceType };
+// state.pattern.events → AlphaTex 文字列に変換
+function buildAlphaTex() {
+  var spbVal  = spb();
+  var ms      = state.pattern.measures;
+  var totalSt = ms * 4 * spbVal;
+  var bpm     = state.pattern.bpm;
+
+  // MIDI note → articulation名（General MIDI percussion map）
+  var MIDI_ART = {
+    36: 'KickHit',
+    38: 'SnareHit',       42: 'HiHatClosed',
+    46: 'HiHatOpen',      49: 'CrashCymbal1',
+    51: 'RideCymbal1',    43: 'HiFloorTom',
+    47: 'LowMidTom',      48: 'HiMidTom',
+    50: 'HighTom',        37: 'SideStick',
+    53: 'RideBell',
+  };
+
+  // track id → MIDI note
+  var TRACK_MIDI = {
+    kick: 36, snare: 38, closed_hihat: 42, open_hihat: 46,
+    crash: 49, ride: 51, cup: 53, rimshot: 37,
+    tom10: 50, tom12: 48, tom16: 43,
+  };
+
+  // 16分ステップ単位の音符長（AlphaTex表記）
+  var DUR_MAP = { 4:'4', 2:'8', 1:'16' };
+
+  // 各ステップのイベント配列を作る
+  var slots = [];
+  for (var si = 0; si < totalSt; si++) slots.push([]);
+  state.pattern.events.forEach(function(ev) {
+    if (ev.step < totalSt) slots[ev.step].push(ev);
+  });
+
+  // AlphaTex ヘッダー
+  var tex = '\\track "Drums" \\instrument percussion \\tempo ' + bpm +
+            ' \\clef neutral \\articulation defaults\n';
+
+  // 小節ループ
+  for (var m = 0; m < ms; m++) {
+    var barTokens = [];
+    var si2 = 0;
+    var barLen = 4 * spbVal; // この小節のステップ数
+
+    while (si2 < barLen) {
+      var abs = m * barLen + si2;
+      var evs = slots[abs] || [];
+
+      // 次のヒットまでの距離（音符長を決定）
+      var dist = barLen - si2;
+      for (var nj = si2 + 1; nj < barLen; nj++) {
+        if (slots[m * barLen + nj] && slots[m * barLen + nj].length > 0) {
+          dist = nj - si2; break;
+        }
+      }
+      // 使える最大の音符長（16分単位の倍数 4,2,1）
+      var steps = dist >= 4 ? 4 : dist >= 2 ? 2 : 1;
+      var durTex = DUR_MAP[steps] || '16';
+
+      if (evs.length > 0) {
+        var arts = evs.map(function(ev) {
+          var midi = TRACK_MIDI[ev.track];
+          return MIDI_ART[midi] || 'SnareHit';
+        });
+        // 複数同時: (Art1 Art2).dur
+        if (arts.length === 1) {
+          barTokens.push(arts[0] + '.' + durTex);
+        } else {
+          barTokens.push('(' + arts.join(' ') + ').' + durTex);
+        }
+      } else {
+        barTokens.push('r.' + durTex);
+      }
+      si2 += steps;
+    }
+    tex += barTokens.join(' ') + ' |\n';
+  }
+  return tex;
 }
 
-function getStep(laneId, idx) {
-  return state.steps[laneId]?.[idx] ?? { active: false, sourceType: 'manual' };
+function renderScore() {
+  var scoreDiv = document.getElementById('scoreDiv');
+  if (!scoreDiv) return;
+
+  // AlphaTab が未ロードなら待つ
+  if (typeof alphaTab === 'undefined') {
+    scoreDiv.innerHTML = '<div style="color:#9090b8;padding:12px;font-size:.85rem">AlphaTab を読み込み中...</div>';
+    setTimeout(renderScore, 500);
+    return;
+  }
+
+  var tex = buildAlphaTex();
+
+  if (_atApi && _atDiv === scoreDiv) {
+    // 既存インスタンスを更新
+    try { _atApi.tex(tex); return; } catch(e) { _atApi = null; }
+  }
+
+  // 新規マウント
+  scoreDiv.innerHTML = '';
+  var wrapper = document.createElement('div');
+  wrapper.style.cssText = 'background:#fff;border-radius:8px;overflow:hidden;min-height:100px;';
+  scoreDiv.appendChild(wrapper);
+
+  try {
+    _atApi = new alphaTab.AlphaTabApi(wrapper, {
+      core: {
+        engine: 'svg',
+        logLevel: 0,
+      },
+      display: {
+        layoutMode: alphaTab.LayoutMode ? alphaTab.LayoutMode.Page : 0,
+        scale: 0.9,
+        barsPerRow: state.pattern.measures <= 2 ? state.pattern.measures : 4,
+        staveProfile: alphaTab.StaveProfile ? alphaTab.StaveProfile.ScoreOnly : 0,
+      },
+      notation: {
+        elements: {},
+      },
+      player: { enablePlayer: false },
+    });
+    _atDiv = scoreDiv;
+    _atApi.tex(tex);
+  } catch(e) {
+    scoreDiv.innerHTML = '<div style="color:#e05555;padding:8px;font-size:.82rem">AlphaTab エラー: ' + e.message + '</div>';
+    console.error('AlphaTab error:', e);
+  }
+}
+function renderAll(){
+  renderControls();
+  renderGrid();
+  renderScore();
+  renderStatus();
+  jsonArea.value = JSON.stringify(state.pattern, null, 2);
 }
 
-function totalSteps() { return state.measures * STEPS_PER_MEASURE; }
-
-// ── 3. AUDIO LOADER ─────────────────────────────────────────
-
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-async function loadAudioFile(file) {
-  const arrayBuffer = await file.arrayBuffer();
-  const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-  state.audioBuffer   = audioBuffer;
-  state.audioFileName = file.name;
-  state.audioDuration = audioBuffer.duration;
-  document.getElementById('file-name').textContent     = file.name;
-  document.getElementById('file-duration').textContent = formatDuration(audioBuffer.duration);
-  document.getElementById('btn-analyze').disabled      = false;
+function ensureAudio(){
+  if(!state.audioContext){
+    state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if(state.audioContext.state === 'suspended'){
+    return state.audioContext.resume();
+  }
+  return Promise.resolve();
+}
+function buildReverbMix(amount=0){
+  const ctx = state.audioContext;
+  if(!ctx || amount<=0) return null;
+  const len = ctx.sampleRate * 1.2;
+  const imp = ctx.createBuffer(2, len, ctx.sampleRate);
+  for(let ch=0; ch<2; ch++){
+    const data = imp.getChannelData(ch);
+    for(let i=0;i<len;i++){
+      data[i] = (Math.random()*2-1) * Math.pow(1 - i/len, 2.4);
+    }
+  }
+  const conv = ctx.createConvolver();
+  conv.buffer = imp;
+  const wet = ctx.createGain();
+  wet.gain.value = Math.max(0, Math.min(0.35, amount/100));
+  conv.connect(wet).connect(ctx.destination);
+  return conv;
+}
+function playNoise(time, dur, filterHz, vol, reverb=0, decay=-1){
+  const ctx = state.audioContext;
+  const actualDecay = decay < 0 ? dur : decay;
+  const bufferSize = Math.max(1, Math.floor(ctx.sampleRate * dur));
+  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for(let i=0;i<bufferSize;i++) data[i] = Math.random()*2-1;
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'bandpass';
+  filter.frequency.value = filterHz;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(vol, time);
+  gain.gain.exponentialRampToValueAtTime(0.0001, time + actualDecay);
+  const reverbNode = buildReverbMix(reverb);
+  src.connect(filter).connect(gain).connect(ctx.destination);
+  if(reverbNode) filter.connect(reverbNode);
+  src.start(time);
+  src.stop(time + dur);
+}
+function playTone(time, f1, f2, dur, vol, wave='sine', reverb=0, attack=0.001){
+  const ctx = state.audioContext;
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  const filter = ctx.createBiquadFilter();
+  filter.type = 'lowpass';
+  filter.frequency.value = Math.max(400, f1*8);
+  o.type = wave;
+  o.frequency.setValueAtTime(f1, time);
+  o.frequency.exponentialRampToValueAtTime(Math.max(20, f2), time + dur);
+  g.gain.setValueAtTime(0.0001, time);
+  g.gain.linearRampToValueAtTime(vol, time + attack);
+  g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+  const reverbNode = buildReverbMix(reverb);
+  o.connect(filter).connect(g).connect(state.audioContext.destination);
+  if(reverbNode) filter.connect(reverbNode);
+  o.start(time);
+  o.stop(time + dur + 0.02);
 }
 
-function formatDuration(sec) {
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60).toString().padStart(2, '0');
-  return `${m}:${s}`;
-}
+// ============================================================
+// 音源プリセット定義
+// 各パートにプリセットを個別設定できる
+// ============================================================
+// パートごとの選択中プリセット
+var _trackPreset = {};  // { trackId: presetId }
 
-// ── 4. ANALYZER ─────────────────────────────────────────────
+// プリセット定義: 各楽器の発音パラメータセット
+// tone(time, f1, f2, dur, vol, wave, reverb, attack)
+// noise(time, dur, filterHz, vol, reverb, decay)
+var SYNTH_PRESETS = {
 
-const FRAME_SIZE  = 1024;
-const HOP_SIZE    = 512;
-const SAMPLE_RATE = 22050;
+  // ── 生ドラム (Acoustic) ─────────────────────────────────
+  'acoustic': {
+    label: '生ドラム',
+    kick: function(t,v){
+      playTone(t, 65, 28, 0.55, v*1.1, 'sine', 20, 0.002);
+      playTone(t, 120, 45, 0.12, v*0.4, 'sine', 5, 0.001);
+      playNoise(t, 0.04, 180, v*0.15, 5, 0.035);
+    },
+    snare: function(t,v){
+      playTone(t, 220, 160, 0.08, v*0.5, 'sine', 8, 0.001);
+      playTone(t, 360, 200, 0.04, v*0.3, 'sine', 4, 0.001);
+      playNoise(t, 0.22, 3500, v*1.0, 12, 0.20);
+      playNoise(t, 0.22, 800, v*0.3, 6, 0.12);
+    },
+    rimshot: function(t,v){
+      playTone(t, 1600, 800, 0.022, v*0.85, 'sine', 4);
+      playTone(t, 3000, 1500, 0.015, v*0.4, 'sine', 2);
+      playNoise(t, 0.015, 4200, v*0.5, 1, 0.012);
+    },
+    tom10: function(t,v){
+      playTone(t, 280, 130, 0.32, v*1.0, 'sine', 15, 0.002);
+      playNoise(t, 0.10, 600, v*0.28, 6, 0.08);
+    },
+    tom12: function(t,v){
+      playTone(t, 210, 95, 0.38, v*1.0, 'sine', 18, 0.002);
+      playNoise(t, 0.12, 450, v*0.28, 8, 0.10);
+    },
+    tom16: function(t,v){
+      playTone(t, 160, 68, 0.45, v*1.05, 'sine', 20, 0.002);
+      playNoise(t, 0.14, 350, v*0.28, 10, 0.12);
+    },
+    closed_hihat: function(t,v){
+      playNoise(t, 0.06, 10000, v*0.22, 1, 0.045);
+      playTone(t, 8000, 6000, 0.015, v*0.05, 'square', 0);
+    },
+    open_hihat: function(t,v){
+      playNoise(t, 0.35, 9000, v*0.22, 4, 0.30);
+      playTone(t, 7000, 5000, 0.10, v*0.04, 'square', 2);
+    },
+    crash: function(t,v){
+      playNoise(t, 0.8, 6000, v*0.28, 22, 0.65);
+      playTone(t, 4500, 2800, 0.22, v*0.07, 'triangle', 12);
+    },
+    ride: function(t,v){
+      playNoise(t, 0.20, 7000, v*0.18, 5, 0.16);
+      playTone(t, 3600, 2800, 0.14, v*0.09, 'triangle', 3);
+    },
+    cup: function(t,v){
+      playNoise(t, 0.15, 8500, v*0.18, 2, 0.12);
+      playTone(t, 5500, 4500, 0.10, v*0.12, 'triangle', 1);
+    },
+  },
 
-const BAND = {
-  kick:  { lo: 20,   hi: 200   },
-  snare: { lo: 180,  hi: 2000  },
-  hihat: { lo: 5000, hi: 18000 },
+  // ── 電子ドラム (Electronic) ─────────────────────────────
+  'electronic': {
+    label: '電子ドラム',
+    kick: function(t,v){
+      playTone(t, 80, 30, 0.30, v*1.2, 'sine', 0, 0.001);
+      playTone(t, 160, 60, 0.08, v*0.5, 'sine', 0, 0.001);
+      playNoise(t, 0.01, 300, v*0.25, 0, 0.008);
+    },
+    snare: function(t,v){
+      playTone(t, 250, 180, 0.06, v*0.6, 'square', 0, 0.001);
+      playNoise(t, 0.12, 5000, v*1.0, 0, 0.10);
+    },
+    rimshot: function(t,v){
+      playTone(t, 2000, 1000, 0.018, v*0.9, 'square', 0);
+      playNoise(t, 0.010, 5000, v*0.5, 0, 0.008);
+    },
+    tom10: function(t,v){
+      playTone(t, 320, 160, 0.20, v*1.1, 'sine', 0, 0.001);
+      playNoise(t, 0.04, 800, v*0.2, 0, 0.03);
+    },
+    tom12: function(t,v){
+      playTone(t, 240, 120, 0.22, v*1.1, 'sine', 0, 0.001);
+      playNoise(t, 0.04, 600, v*0.2, 0, 0.03);
+    },
+    tom16: function(t,v){
+      playTone(t, 180, 80, 0.25, v*1.1, 'sine', 0, 0.001);
+      playNoise(t, 0.04, 450, v*0.2, 0, 0.03);
+    },
+    closed_hihat: function(t,v){
+      playNoise(t, 0.04, 12000, v*0.28, 0, 0.030);
+    },
+    open_hihat: function(t,v){
+      playNoise(t, 0.20, 11000, v*0.26, 0, 0.18);
+    },
+    crash: function(t,v){
+      playNoise(t, 0.5, 8000, v*0.30, 0, 0.40);
+      playTone(t, 5000, 3000, 0.15, v*0.08, 'sawtooth', 0);
+    },
+    ride: function(t,v){
+      playNoise(t, 0.14, 9000, v*0.20, 0, 0.12);
+      playTone(t, 4000, 3200, 0.10, v*0.10, 'square', 0);
+    },
+    cup: function(t,v){
+      playNoise(t, 0.10, 10000, v*0.20, 0, 0.08);
+      playTone(t, 6000, 5000, 0.08, v*0.12, 'square', 0);
+    },
+  },
+
+  // ── ロック (Rock) ──────────────────────────────────────
+  'rock': {
+    label: 'ロック',
+    kick: function(t,v){
+      playTone(t, 75, 32, 0.35, v*1.15, 'sine', 5, 0.001);
+      playTone(t, 140, 55, 0.10, v*0.45, 'sine', 2, 0.001);
+      playNoise(t, 0.03, 250, v*0.20, 2, 0.025);
+    },
+    snare: function(t,v){
+      playTone(t, 195, 145, 0.07, v*0.55, 'sine', 5, 0.001);
+      playNoise(t, 0.18, 4000, v*1.05, 8, 0.16);
+      playNoise(t, 0.10, 900, v*0.35, 3, 0.08);
+    },
+    rimshot: function(t,v){
+      playTone(t, 1700, 850, 0.020, v*0.9, 'sine', 3);
+      playNoise(t, 0.012, 4500, v*0.55, 1, 0.010);
+    },
+    tom10: function(t,v){
+      playTone(t, 260, 115, 0.30, v*1.05, 'sine', 10, 0.002);
+      playNoise(t, 0.10, 550, v*0.30, 5, 0.08);
+    },
+    tom12: function(t,v){
+      playTone(t, 200, 88, 0.35, v*1.05, 'sine', 12, 0.002);
+      playNoise(t, 0.12, 420, v*0.30, 6, 0.10);
+    },
+    tom16: function(t,v){
+      playTone(t, 155, 62, 0.42, v*1.08, 'sine', 14, 0.002);
+      playNoise(t, 0.14, 330, v*0.32, 8, 0.12);
+    },
+    closed_hihat: function(t,v){
+      playNoise(t, 0.055, 9500, v*0.25, 1, 0.042);
+      playTone(t, 6500, 4800, 0.018, v*0.06, 'square', 0);
+    },
+    open_hihat: function(t,v){
+      playNoise(t, 0.28, 8800, v*0.24, 3, 0.24);
+      playTone(t, 6200, 4000, 0.09, v*0.05, 'square', 1);
+    },
+    crash: function(t,v){
+      playNoise(t, 0.65, 5800, v*0.32, 20, 0.55);
+      playTone(t, 4300, 2700, 0.20, v*0.08, 'triangle', 12);
+    },
+    ride: function(t,v){
+      playNoise(t, 0.22, 6800, v*0.20, 6, 0.18);
+      playTone(t, 3500, 2700, 0.14, v*0.10, 'triangle', 3);
+    },
+    cup: function(t,v){
+      playNoise(t, 0.16, 8000, v*0.20, 2, 0.13);
+      playTone(t, 5300, 4300, 0.10, v*0.13, 'triangle', 1);
+    },
+  },
+
+  // ── ジャズ (Jazz) ──────────────────────────────────────
+  'jazz': {
+    label: 'ジャズ',
+    kick: function(t,v){
+      playTone(t, 58, 35, 0.25, v*0.85, 'sine', 8, 0.005);
+      playNoise(t, 0.025, 150, v*0.10, 3, 0.020);
+    },
+    snare: function(t,v){
+      playTone(t, 180, 140, 0.06, v*0.45, 'sine', 10, 0.003);
+      playNoise(t, 0.18, 2800, v*0.80, 15, 0.16);
+    },
+    rimshot: function(t,v){
+      playTone(t, 1400, 700, 0.020, v*0.75, 'sine', 6);
+      playNoise(t, 0.012, 3500, v*0.45, 2, 0.010);
+    },
+    tom10: function(t,v){
+      playTone(t, 250, 125, 0.28, v*0.90, 'sine', 12, 0.003);
+      playNoise(t, 0.08, 500, v*0.22, 5, 0.07);
+    },
+    tom12: function(t,v){
+      playTone(t, 195, 90, 0.32, v*0.90, 'sine', 14, 0.003);
+      playNoise(t, 0.10, 380, v*0.22, 6, 0.09);
+    },
+    tom16: function(t,v){
+      playTone(t, 148, 65, 0.38, v*0.92, 'sine', 16, 0.003);
+      playNoise(t, 0.12, 300, v*0.24, 8, 0.11);
+    },
+    closed_hihat: function(t,v){
+      playNoise(t, 0.07, 8000, v*0.20, 4, 0.060);
+      playTone(t, 5500, 4000, 0.025, v*0.07, 'triangle', 2);
+    },
+    open_hihat: function(t,v){
+      playNoise(t, 0.45, 7500, v*0.20, 8, 0.40);
+      playTone(t, 5200, 3500, 0.12, v*0.06, 'triangle', 5);
+    },
+    crash: function(t,v){
+      playNoise(t, 1.0, 5200, v*0.24, 30, 0.85);
+      playTone(t, 3800, 2500, 0.28, v*0.07, 'triangle', 18);
+    },
+    ride: function(t,v){
+      playNoise(t, 0.30, 6200, v*0.18, 10, 0.26);
+      playTone(t, 3200, 2600, 0.18, v*0.11, 'triangle', 6);
+    },
+    cup: function(t,v){
+      playNoise(t, 0.20, 7500, v*0.18, 4, 0.16);
+      playTone(t, 5000, 4200, 0.12, v*0.14, 'triangle', 2);
+    },
+  },
+
+  // ── 808 (TR-808風) ─────────────────────────────────────
+  '808': {
+    label: 'TR-808',
+    kick: function(t,v){
+      playTone(t, 55, 28, 0.80, v*1.3, 'sine', 0, 0.001);
+      playTone(t, 110, 55, 0.10, v*0.4, 'sine', 0, 0.001);
+      playNoise(t, 0.008, 200, v*0.30, 0, 0.006);
+    },
+    snare: function(t,v){
+      playTone(t, 200, 160, 0.05, v*0.5, 'square', 0, 0.001);
+      playNoise(t, 0.10, 6000, v*1.1, 0, 0.08);
+    },
+    rimshot: function(t,v){
+      playTone(t, 2200, 1100, 0.015, v*1.0, 'square', 0);
+      playNoise(t, 0.008, 6000, v*0.6, 0, 0.006);
+    },
+    tom10: function(t,v){
+      playTone(t, 350, 180, 0.18, v*1.1, 'sine', 0, 0.001);
+    },
+    tom12: function(t,v){
+      playTone(t, 260, 130, 0.20, v*1.1, 'sine', 0, 0.001);
+    },
+    tom16: function(t,v){
+      playTone(t, 190, 90, 0.22, v*1.1, 'sine', 0, 0.001);
+    },
+    closed_hihat: function(t,v){
+      playNoise(t, 0.03, 12000, v*0.35, 0, 0.025);
+    },
+    open_hihat: function(t,v){
+      playNoise(t, 0.15, 11000, v*0.32, 0, 0.13);
+    },
+    crash: function(t,v){
+      playNoise(t, 0.40, 9000, v*0.35, 0, 0.32);
+    },
+    ride: function(t,v){
+      playNoise(t, 0.12, 10000, v*0.25, 0, 0.10);
+      playTone(t, 4500, 3500, 0.08, v*0.12, 'square', 0);
+    },
+    cup: function(t,v){
+      playNoise(t, 0.08, 11000, v*0.25, 0, 0.06);
+      playTone(t, 6000, 5000, 0.06, v*0.14, 'square', 0);
+    },
+  },
 };
 
+// デフォルトプリセット（全パート）
+var _globalPreset = 'acoustic';
+
+function getPresetForTrack(trackId){
+  return SYNTH_PRESETS[_trackPreset[trackId] || _globalPreset] || SYNTH_PRESETS['acoustic'];
+}
+
+function playTrackAt(trackId, time, velocityScale=1){
+  const tr = TRACKS.find(t=>t.id===trackId);
+  if(!tr) return;
+  const v = Math.max(0.05, Math.min(1.2, velocityScale));
+  const preset = getPresetForTrack(trackId);
+  const fn = preset[trackId];
+  if(fn){ fn(time, v); return; }
+  // fallback（未定義楽器）
+  playNoise(time, 0.05, 1000, v*0.2, 0, 0.04);
+}
+function fireWithOrn(trackId, step, time, baseVel){
+  // カスタムサンプルがあれば優先再生
+  var _s=_S&&_S[trackId];
+  if(_s&&_s.buffer&&state.audioContext){
+    var _src=state.audioContext.createBufferSource();
+    var _g=state.audioContext.createGain();
+    _src.buffer=_s.buffer;
+    _g.gain.setValueAtTime(Math.min(1.2,Math.max(0.05,baseVel)),time);
+    _src.connect(_g).connect(state.audioContext.destination);
+    _src.start(time);
+    return;
+  }
+  const orn = getOrn(trackId, step);
+  const grace = 0.035;
+  if(!orn){
+    playTrackAt(trackId, time, baseVel);
+    return;
+  }
+  switch(orn){
+    case 'flam':
+      playTrackAt(trackId, time - grace, baseVel*0.45);
+      playTrackAt(trackId, time, baseVel);
+      break;
+    case 'drag':
+      playTrackAt(trackId, time - grace*2.2, baseVel*0.38);
+      playTrackAt(trackId, time - grace, baseVel*0.5);
+      playTrackAt(trackId, time, baseVel);
+      break;
+    case 'ghost':
+      playTrackAt(trackId, time, baseVel*0.22);
+      break;
+    case 'accent':
+      playTrackAt(trackId, time, Math.min(1.2, baseVel*1.25));
+      break;
+    case 'rim':
+      playTrackAt('rimshot', time, baseVel);
+      break;
+    case 'cross':
+      playTrackAt('rimshot', time, baseVel*0.55);
+      break;
+    case 'buzz':
+      playTrackAt(trackId, time - 0.02, baseVel*0.35);
+      playTrackAt(trackId, time - 0.01, baseVel*0.45);
+      playTrackAt(trackId, time, baseVel);
+      break;
+    default:
+      playTrackAt(trackId, time, baseVel);
+  }
+}
+function secondsPerBeat(){
+  return 60 / state.pattern.bpm;
+}
+function secondsPerStep(){
+  return secondsPerBeat() / spb();
+}
+function stepOffset(step){
+  const feel = state.pattern.feelMode;
+  if(feel === 'straight') return 0;
+  const p = spb();
+  const posInBeat = step % p;
+  if(feel === 'swing8'){
+    if(p >= 2 && posInBeat % 2 === 1){
+      return secondsPerStep() * 0.33;
+    }
+    return 0;
+  }
+  if(feel === 'shuffle16'){
+    if(p >= 4 && posInBeat === 1){
+      return secondsPerStep() * 0.18;
+    }
+    if(p >= 4 && posInBeat === 3){
+      return secondsPerStep() * 0.08;
+    }
+  }
+  return 0;
+}
+function scheduler(){
+  const ctx = state.audioContext;
+  if(!ctx || !state.isPlaying) return;
+  const tot = totalSteps();
+  while(state.nextNoteTime < ctx.currentTime + state.scheduleAheadTime){
+    const step = state.scheduleStep;
+    const events = state.pattern.events.filter(e=>e.step===step);
+    const scheduledTime = state.nextNoteTime + stepOffset(step);
+    for(const ev of events){
+      const vel = Math.max(0.3, Math.min(1, (ev.velocity||100)/127));
+      fireWithOrn(ev.track, step, scheduledTime, vel);
+    }
+    // 表示更新はsetTimeoutで（スケジュール時刻に合わせて）
+    const capturedStep = step;
+    const delay = Math.max(0, (scheduledTime - ctx.currentTime) * 1000);
+    setTimeout(()=>{
+      if(!state.isPlaying) return;
+      state.drawStep = capturedStep;
+      renderPlayhead();
+    }, delay);
+
+    state.nextNoteTime += secondsPerStep();
+    state.scheduleStep = (step + 1) % tot;
+  }
+}
+async function startPlayback(){
+  if(state.isPlaying) return;
+  await ensureAudio();
+  state.isPlaying = true;
+  state.scheduleStep = 0;
+  state.drawStep = 0;
+  state.nextNoteTime = state.audioContext.currentTime + 0.05;
+  renderGrid();
+  state.schedulerId = setInterval(scheduler, state.lookahead);
+}
+function stopPlayback(){
+  state.isPlaying = false;
+  if(state.schedulerId) clearInterval(state.schedulerId);
+  state.schedulerId = null;
+  state.scheduleStep = 0;
+  state.drawStep = 0;
+  renderGrid();
+}
+
+function setGridMode(mode){
+  stopPlayback();
+  const oldTotal = totalSteps();
+  state.pattern.gridMode = mode;
+  const newTotal = totalSteps();
+  state.pattern.events = state.pattern.events.filter(e=>e.step < newTotal);
+  Object.keys(state.pattern.ornaments).forEach(k=>{
+    const parts = k.split('|');
+    const step = Number(parts[2]);
+    if(step >= newTotal) delete state.pattern.ornaments[k];
+  });
+  savePattern();
+  renderAll();
+}
+function setMeasures(value){
+  stopPlayback();
+  state.pattern.measures = clampMeasures(value);
+  const max = totalSteps();
+  state.pattern.events = state.pattern.events.filter(e=>e.step < max);
+  Object.keys(state.pattern.ornaments).forEach(k=>{
+    const step = Number(k.split('|')[2]);
+    if(step >= max) delete state.pattern.ornaments[k];
+  });
+  savePattern();
+  renderAll();
+}
+function setBpm(v){
+  state.pattern.bpm = clampBpm(v);
+  savePattern();
+  renderStatus();
+}
+function setFeel(v){
+  state.pattern.feelMode = v;
+  savePattern();
+  renderStatus();
+}
+function clearAll(){
+  stopPlayback();
+  state.pattern.events = [];
+  state.pattern.ornaments = {};
+  savePattern();
+  renderAll();
+}
+function downloadJson(){
+  const blob = new Blob([JSON.stringify(state.pattern, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'drum-pattern.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+function downloadHtml(){
+  const blob = new Blob([document.documentElement.outerHTML], {type:'text/html'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'drum-notation-daw-tatatan-inspired.html';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+async function copyJson(){
+  try{
+    await navigator.clipboard.writeText(jsonArea.value);
+  }catch{
+    jsonArea.select();
+    document.execCommand('copy');
+  }
+}
+function applyJson(){
+  try{
+    state.pattern = normalizePattern(JSON.parse(jsonArea.value));
+    stopPlayback();
+    savePattern();
+    renderAll();
+  }catch{
+    alert('JSONの形式が正しくありません。');
+  }
+}
+async function loadJsonFile(file){
+  try{
+    const text = await file.text();
+    state.pattern = normalizePattern(JSON.parse(text));
+    stopPlayback();
+    savePattern();
+    renderAll();
+  }catch{
+    alert('JSON読み込みに失敗しました。');
+  }
+}
+function encodeVarLen(value){
+  let buffer = value & 0x7f;
+  const bytes = [];
+  while((value >>= 7)){
+    buffer <<= 8;
+    buffer |= (value & 0x7f) | 0x80;
+  }
+  while(true){
+    bytes.push(buffer & 0xff);
+    if(buffer & 0x80) buffer >>= 8; else break;
+  }
+  return bytes;
+}
+function numberToBytes(value, len){
+  const out = new Array(len).fill(0);
+  for(let i=len-1;i>=0;i--){
+    out[i] = value & 0xff;
+    value >>= 8;
+  }
+  return out;
+}
+function stringToBytes(v){ return Array.from(v).map(c=>c.charCodeAt(0)); }
+function exportMidi(){
+  const TPQ = 480;
+  const stepTicks = TPQ / spb();
+  const noteLen = Math.max(30, Math.floor(stepTicks * 0.75));
+  const midiEvents = [];
+  const mpq = Math.round(60000000 / state.pattern.bpm);
+  midiEvents.push({tick:0,data:[0xff,0x51,0x03,...numberToBytes(mpq,3)]});
+  for(const ev of state.pattern.events){
+    const tr = TRACKS.find(t=>t.id===ev.track);
+    if(!tr) continue;
+    const tick = Math.round(ev.step * stepTicks);
+    const velocity = Math.max(1, Math.min(127, ev.velocity || 100));
+    const orn = getOrn(ev.track, ev.step);
+    let note = tr.midiNote;
+    if(orn === 'rim' || orn === 'cross') note = 37;
+    midiEvents.push({tick,data:[0x99,note,velocity]});
+    midiEvents.push({tick:tick+noteLen,data:[0x89,note,0x00]});
+  }
+  midiEvents.push({tick:Math.round(totalSteps()*stepTicks)+1,data:[0xff,0x2f,0x00]});
+  midiEvents.sort((a,b)=>a.tick-b.tick);
+  const trackBytes = [];
+  let prev = 0;
+  for(const e of midiEvents){
+    const delta = e.tick - prev;
+    trackBytes.push(...encodeVarLen(delta), ...e.data);
+    prev = e.tick;
+  }
+  const header = [...stringToBytes('MThd'),...numberToBytes(6,4),...numberToBytes(0,2),...numberToBytes(1,2),...numberToBytes(TPQ,2)];
+  const track = [...stringToBytes('MTrk'),...numberToBytes(trackBytes.length,4),...trackBytes];
+  const bytes = new Uint8Array([...header, ...track]);
+  const blob = new Blob([bytes], {type:'audio/midi'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'drum-pattern.mid'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('playBtn').addEventListener('click', startPlayback);
+document.getElementById('stopBtn').addEventListener('click', stopPlayback);
+document.getElementById('clearBtn').addEventListener('click', clearAll);
+document.getElementById('saveJsonBtn').addEventListener('click', downloadJson);
+document.getElementById('saveHtmlBtn').addEventListener('click', downloadHtml);
+document.getElementById('midiBtn').addEventListener('click', exportMidi);
+document.getElementById('applyJsonBtn').addEventListener('click', applyJson);
+document.getElementById('copyJsonBtn').addEventListener('click', copyJson);
+document.getElementById('jsonFile').addEventListener('change', e=>{
+  const file = e.target.files && e.target.files[0];
+  if(file) loadJsonFile(file);
+  e.target.value = '';
+});
+bpmInput.addEventListener('change', ()=>setBpm(bpmInput.value));
+barsInput.addEventListener('change', ()=>setMeasures(barsInput.value));
+feelInput.addEventListener('change', ()=>setFeel(feelInput.value));
+document.querySelectorAll('.gm-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>setGridMode(btn.dataset.mode));
+});
+
+// BPMスライダー
+document.getElementById('bpmSlider').addEventListener('input',function(e){
+  var v=parseInt(e.target.value);
+  document.getElementById('bpmInput').value=v;
+  setBpm(v);
+});
+document.getElementById('bpmInput').addEventListener('change',function(){
+  document.getElementById('bpmSlider').value=this.value;
+});
+// ベロシティ
+var _VP={track:null,step:null};
+function showVelPop(track,step,x,y){
+  var ev=state.pattern.events.find(function(e){return e.track===track&&e.step===step;});
+  if(!ev)return;
+  _VP.track=track;_VP.step=step;
+  var sl=document.getElementById('velSlider'),vl=document.getElementById('velVal');
+  sl.value=ev.velocity||100;vl.textContent=sl.value;
+  sl.oninput=function(){vl.textContent=sl.value;};
+  var p=document.getElementById('velPop');
+  p.style.left=Math.min(x,window.innerWidth-180)+'px';
+  p.style.top=Math.max(10,y-140)+'px';
+  p.style.display='block';
+}
+function applyVelocity(){
+  var ev=state.pattern.events.find(function(e){return e.track===_VP.track&&e.step===_VP.step;});
+  if(ev){ev.velocity=parseInt(document.getElementById('velSlider').value);savePattern();renderGrid();}
+  document.getElementById('velPop').style.display='none';
+}
+document.addEventListener('click',function(e){
+  var p=document.getElementById('velPop');
+  if(p&&p.style.display==='block'&&!p.contains(e.target)&&!e.target.closest('.cell'))p.style.display='none';
+});
+// サンプラー
+var _S={},_R={mr:null,chunks:[],track:null};
+function openSampler(){
+  var body=document.getElementById('samplerBody');
+  body.innerHTML='';
+  var bs='min-height:30px;padding:0 8px;border-radius:6px;border:1px solid rgba(160,160,255,0.3);background:#23234a;color:#f0f0ff;cursor:pointer;font-size:.8rem;white-space:nowrap';
+  var presetIds=Object.keys(SYNTH_PRESETS);
+
+  // グローバルプリセット選択
+  var gRow=document.createElement('div');
+  gRow.style.cssText='padding:10px 12px;background:#0f0f28;border-radius:10px;margin-bottom:8px;border:1px solid rgba(255,230,109,0.2)';
+  var gSel='<div style="font-size:.82rem;color:#ffe66d;font-weight:700;margin-bottom:8px">&#127925; 全体プリセット</div>';
+  gSel+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
+  presetIds.forEach(function(pid){
+    var active=(_globalPreset===pid&&Object.keys(_trackPreset).length===0);
+    var gpid=JSON.stringify(pid);
+    gSel+='<button onclick="setGlobalPreset('+gpid+')" style="'+bs+
+      (active?';background:#4a3a00;border-color:#ffe66d;color:#ffe66d':'')+
+      '">'+SYNTH_PRESETS[pid].label+'</button>';
+  });
+  gSel+='</div>';
+  gRow.innerHTML=gSel;
+  body.appendChild(gRow);
+
+  // パートごとの設定
+  var hdr=document.createElement('div');
+  hdr.style.cssText='font-size:.78rem;color:#9090b8;padding:4px 2px 6px;letter-spacing:.06em';
+  hdr.textContent='パート別設定（個別に上書き可能）';
+  body.appendChild(hdr);
+
+  TRACKS.forEach(function(tr){
+    var s=_S[tr.id];
+    var curP=_trackPreset[tr.id]||null;
+    var row=document.createElement('div');
+    row.style.cssText='padding:8px 10px;background:#1a1a30;border-radius:10px;margin-bottom:4px';
+    var tid=JSON.stringify(tr.id);
+
+    // パート名 + プリセット選択
+    var inner='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">';
+    inner+='<span style="font-weight:700;font-size:.88rem;color:'+tr.accent+';min-width:80px">'+tr.label+'</span>';
+    inner+='<div style="display:flex;gap:4px;flex-wrap:wrap">';
+    // 「グローバルに従う」ボタン
+    inner+='<button onclick="clearTrackPreset('+tid+')" style="'+bs+
+      (!curP?';background:#1a3a00;border-color:#a8ff78;color:#a8ff78':'')+
+      '">全体に従う</button>';
+    presetIds.forEach(function(pid){
+      var active=(curP===pid);
+      var ppid=JSON.stringify(pid);
+      inner+='<button onclick="setTrackPreset('+tid+','+ppid+')" style="'+bs+
+        (active?';background:#4a3a00;border-color:#ffe66d;color:#ffe66d':'')+
+        '">'+SYNTH_PRESETS[pid].label+'</button>';
+    });
+    inner+='</div></div>';
+
+    // ファイル/録音ボタン
+    inner+='<div style="display:flex;gap:6px;align-items:center">';
+    inner+='<span id="src_'+tr.id+'" style="font-size:.75rem;color:#9090b8;flex:1">'+(s?'&#128193; '+s.name:'シンセ音源')+'</span>';
+    inner+='<button style="'+bs+'" onclick="loadSF('+tid+')">&#128193; 読込</button>';
+    inner+='<button id="rec_'+tr.id+'" style="'+bs+'" onclick="togRec('+tid+')">&#127897; 録音</button>';
+    if(s){inner+='<button style="'+bs+'" onclick="clearSample('+tid+')">&#10005;</button>';}
+    inner+='</div>';
+
+    row.innerHTML=inner;
+    body.appendChild(row);
+  });
+  document.getElementById('samplerModal').style.display='flex';
+}
+
+function setGlobalPreset(pid){
+  _globalPreset=pid;
+  _trackPreset={};  // 個別設定をリセット
+  openSampler();
+}
+function setTrackPreset(tid,pid){
+  _trackPreset[tid]=pid;
+  openSampler();
+}
+function clearTrackPreset(tid){
+  delete _trackPreset[tid];
+  openSampler();
+}
+function clearSample(tid){
+  delete _S[tid];
+  openSampler();
+}
+function loadSF(tid){
+  var inp=document.createElement('input');inp.type='file';inp.accept='audio/*';
+  inp.onchange=function(e){
+    var f=e.target.files[0];if(!f)return;
+    ensureAudio().then(function(){
+      f.arrayBuffer().then(function(ab){
+        state.audioContext.decodeAudioData(ab,
+          function(buf){_S[tid]={buffer:buf,name:f.name};var el=document.getElementById('src_'+tid);if(el)el.textContent='OK '+f.name;},
+          function(err){alert('Error: '+err);});
+      });
+    });
+  };inp.click();
+}
+function togRec(tid){
+  var btn=document.getElementById('rec_'+tid);
+  if(_R.mr&&_R.mr.state==='recording'){_R.mr.stop();btn.innerHTML='&#127897;';return;}
+  ensureAudio().then(function(){
+    navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+      _R.chunks=[];_R.track=tid;_R.mr=new MediaRecorder(stream);
+      _R.mr.ondataavailable=function(e){_R.chunks.push(e.data);};
+      _R.mr.onstop=function(){
+        stream.getTracks().forEach(function(t){t.stop();});
+        new Blob(_R.chunks,{type:'audio/webm'}).arrayBuffer().then(function(ab){
+          state.audioContext.decodeAudioData(ab,function(buf){
+            _S[tid]={buffer:buf,name:'REC'};
+            var el=document.getElementById('src_'+tid);if(el)el.textContent='OK REC';
+          });
+        });
+      };
+      _R.mr.start();btn.innerHTML='&#9209;';
+    }).catch(function(err){alert('Mic error: '+err.message);});
+  });
+}
+document.getElementById('samplerBtn').addEventListener('click',openSampler);
+// fireWithOrn wrap for sample playback
+// sample playback handled inside fireWithOrn
+
+// ============================================================
+// ドラム音源解析エンジン
+// ============================================================
+
+const ANALYZE_SAMPLE_RATE = 22050;
+const ANALYZE_FRAME       = 1024;
+const ANALYZE_HOP         = 512;
+
+// 周波数帯域パワー計算
 function bandPower(mag, loHz, hiHz, fftSize, sr) {
   const lo = Math.round(loHz / (sr / fftSize));
   const hi = Math.min(Math.round(hiHz / (sr / fftSize)), mag.length - 1);
@@ -485,10 +1571,11 @@ function bandPower(mag, loHz, hiHz, fftSize, sr) {
   return sum / Math.max(1, hi - lo + 1);
 }
 
+// 音源をモノラル・ダウンサンプルしてOfflineAudioContextで返す
 async function resampleToMono(audioBuffer) {
-  const dur    = Math.min(audioBuffer.duration, 180);
-  const frames = Math.ceil(dur * SAMPLE_RATE);
-  const offline = new OfflineAudioContext(1, frames, SAMPLE_RATE);
+  const dur    = Math.min(audioBuffer.duration, 300);
+  const frames = Math.ceil(dur * ANALYZE_SAMPLE_RATE);
+  const offline = new OfflineAudioContext(1, frames, ANALYZE_SAMPLE_RATE);
   const src     = offline.createBufferSource();
   src.buffer = audioBuffer;
   src.connect(offline.destination);
@@ -496,36 +1583,39 @@ async function resampleToMono(audioBuffer) {
   return offline.startRendering();
 }
 
+// スペクトルフラックス法でオンセット時刻列を検出
 function detectOnsets(monoBuffer) {
-  const samples  = monoBuffer.getChannelData(0);
-  const sr       = monoBuffer.sampleRate;
-  const fftSize  = FRAME_SIZE;
-  const fftHalf  = fftSize / 2;
-  const numFrames = Math.floor((samples.length - fftSize) / HOP_SIZE);
-  const prevMag  = new Float32Array(fftHalf);
-  const fluxArr  = [];
+  const samples   = monoBuffer.getChannelData(0);
+  const sr        = monoBuffer.sampleRate;
+  const fftHalf   = ANALYZE_FRAME / 2;
+  const numFrames = Math.floor((samples.length - ANALYZE_FRAME) / ANALYZE_HOP);
+  const prevMag   = new Float32Array(fftHalf);
+  const fluxArr   = [];
 
-  const hann = new Float32Array(fftSize);
-  for (let n = 0; n < fftSize; n++)
-    hann[n] = 0.5 * (1 - Math.cos((2 * Math.PI * n) / (fftSize - 1)));
+  // Hannウィンドウ
+  const hann = new Float32Array(ANALYZE_FRAME);
+  for (let n = 0; n < ANALYZE_FRAME; n++)
+    hann[n] = 0.5 * (1 - Math.cos(2 * Math.PI * n / (ANALYZE_FRAME - 1)));
 
   for (let f = 0; f < numFrames; f++) {
-    const start    = f * HOP_SIZE;
-    const windowed = new Float32Array(fftSize);
-    for (let i = 0; i < fftSize; i++)
+    const start    = f * ANALYZE_HOP;
+    const windowed = new Float32Array(ANALYZE_FRAME);
+    for (let i = 0; i < ANALYZE_FRAME; i++)
       windowed[i] = (samples[start + i] || 0) * hann[i];
 
+    // DFT（マグニチュードのみ）
     const mag = new Float32Array(fftHalf);
     for (let k = 0; k < fftHalf; k++) {
       let re = 0, im = 0;
-      for (let n = 0; n < fftSize; n++) {
-        const angle = (2 * Math.PI * k * n) / fftSize;
+      for (let n = 0; n < ANALYZE_FRAME; n++) {
+        const angle = 2 * Math.PI * k * n / ANALYZE_FRAME;
         re += windowed[n] * Math.cos(angle);
         im -= windowed[n] * Math.sin(angle);
       }
       mag[k] = Math.sqrt(re * re + im * im);
     }
 
+    // スペクトルフラックス（正方向のみ）
     let flux = 0;
     for (let k = 0; k < fftHalf; k++) {
       const diff = mag[k] - prevMag[k];
@@ -535,54 +1625,60 @@ function detectOnsets(monoBuffer) {
     prevMag.set(mag);
   }
 
+  // 適応閾値でピーク検出
   const W = 20;
   const onsets = [];
   for (let i = W; i < fluxArr.length - W; i++) {
-    const local = fluxArr.slice(i - W, i + W).map(x => x.flux);
-    const mean  = local.reduce((a, b) => a + b, 0) / local.length;
+    const local  = fluxArr.slice(i - W, i + W).map(x => x.flux);
+    const mean   = local.reduce((a, b) => a + b, 0) / local.length;
     const thresh = mean * 1.5 + 0.001;
-    if (
-      fluxArr[i].flux > thresh &&
-      fluxArr[i].flux > fluxArr[i - 1].flux &&
-      fluxArr[i].flux > fluxArr[i + 1].flux
-    ) onsets.push(fluxArr[i].time);
+    if (fluxArr[i].flux > thresh &&
+        fluxArr[i].flux > fluxArr[i - 1].flux &&
+        fluxArr[i].flux > fluxArr[i + 1].flux) {
+      onsets.push(fluxArr[i].time);
+    }
   }
-  return { onsets, sr, samples };
+  return onsets;
 }
 
+// オンセット間隔ヒストグラムからBPMを推定
 function estimateBPM(onsets) {
-  if (onsets.length < 4) return DEFAULT_BPM;
+  if (onsets.length < 4) return 120;
   const intervals = [];
   for (let i = 1; i < Math.min(onsets.length, 80); i++) {
     const d = onsets[i] - onsets[i - 1];
     if (d > 0.1 && d < 2.0) intervals.push(d);
   }
-  if (!intervals.length) return DEFAULT_BPM;
-  const bpmBins = {};
+  if (!intervals.length) return 120;
+
+  const bins = {};
   intervals.forEach(iv => {
     const bpm = Math.round(60 / iv);
     for (let b = bpm - 2; b <= bpm + 2; b++)
-      bpmBins[b] = (bpmBins[b] || 0) + 1;
+      bins[b] = (bins[b] || 0) + 1;
     [bpm * 2, Math.round(bpm / 2)].forEach(b2 => {
-      if (b2 >= 60 && b2 <= 200) bpmBins[b2] = (bpmBins[b2] || 0) + 0.5;
+      if (b2 >= 60 && b2 <= 200) bins[b2] = (bins[b2] || 0) + 0.5;
     });
   });
-  let best = DEFAULT_BPM, bestCount = 0;
-  Object.entries(bpmBins).forEach(([b, cnt]) => {
+
+  let best = 120, bestCnt = 0;
+  Object.entries(bins).forEach(([b, cnt]) => {
     const bv = parseInt(b);
-    if (bv >= 60 && bv <= 200 && cnt > bestCount) { bestCount = cnt; best = bv; }
+    if (bv >= 60 && bv <= 200 && cnt > bestCnt) { bestCnt = cnt; best = bv; }
   });
   return best;
 }
 
+// 周波数帯域でKick/Snare/HiHatを分類
 function classifyOnsets(onsets, monoBuffer) {
   const sr      = monoBuffer.sampleRate;
   const samples = monoBuffer.getChannelData(0);
   const fftSize = 1024;
   const fftHalf = fftSize / 2;
-  const hann    = new Float32Array(fftSize);
+
+  const hann = new Float32Array(fftSize);
   for (let n = 0; n < fftSize; n++)
-    hann[n] = 0.5 * (1 - Math.cos((2 * Math.PI * n) / (fftSize - 1)));
+    hann[n] = 0.5 * (1 - Math.cos(2 * Math.PI * n / (fftSize - 1)));
 
   return onsets.map(t => {
     const start    = Math.max(0, Math.floor(t * sr));
@@ -594,935 +1690,149 @@ function classifyOnsets(onsets, monoBuffer) {
     for (let k = 0; k < fftHalf; k++) {
       let re = 0, im = 0;
       for (let n = 0; n < fftSize; n++) {
-        const angle = (2 * Math.PI * k * n) / fftSize;
+        const angle = 2 * Math.PI * k * n / fftSize;
         re += windowed[n] * Math.cos(angle);
         im -= windowed[n] * Math.sin(angle);
       }
       mag[k] = Math.sqrt(re * re + im * im);
     }
 
-    const kickP  = bandPower(mag, BAND.kick.lo,  BAND.kick.hi,  fftSize, sr);
-    const snareP = bandPower(mag, BAND.snare.lo, BAND.snare.hi, fftSize, sr);
-    const hihatP = bandPower(mag, BAND.hihat.lo, BAND.hihat.hi, fftSize, sr);
+    const kickP  = bandPower(mag, 20,   200,   fftSize, sr);
+    const snareP = bandPower(mag, 180,  2000,  fftSize, sr);
+    const hihatP = bandPower(mag, 5000, 18000, fftSize, sr);
     const total  = kickP + snareP + hihatP || 1;
 
-    let laneId, confidence;
-    if (kickP > snareP * 1.8 && kickP > hihatP * 2.5) {
-      laneId = 'kick';  confidence = kickP / total;
-    } else if (hihatP > kickP * 3 && hihatP > snareP * 0.8) {
-      laneId = 'hihat'; confidence = hihatP / total;
-    } else {
-      laneId = 'snare'; confidence = snareP / total;
-    }
-    return { timeSeconds: t, laneId, confidence: Math.min(1, confidence) };
+    let track;
+    if (kickP > snareP * 1.8 && kickP > hihatP * 2.5)        track = 'kick';
+    else if (hihatP > kickP * 3 && hihatP > snareP * 0.8)    track = 'closed_hihat';
+    else                                                        track = 'snare';
+
+    return { timeSeconds: t, track, confidence: Math.min(1, Math.max(kickP, snareP, hihatP) / total) };
   });
 }
 
-function snapToGrid(events, bpm, measures) {
-  const stepDuration = (60 / bpm) / 4;
-  const total        = measures * STEPS_PER_MEASURE;
-  LANES.forEach(lane => {
-    for (let i = 0; i < total; i++) {
-      if (state.steps[lane.id][i]?.sourceType === 'auto')
-        state.steps[lane.id][i] = { active: false, sourceType: 'manual' };
-    }
-  });
+// イベントを16分グリッドにスナップして state.pattern.events に書き込む
+function snapEventsToGrid(events, bpm, measures) {
+  const spbVal     = GRID_MODES[state.pattern.gridMode].stepsPerBeat;
+  const stepDur    = (60 / bpm) / spbVal;  // 1ステップの秒数
+  const totalSteps = measures * 4 * spbVal;
+
+  // 既存のauto系イベントを削除（手動ステップは残す）
+  state.pattern.events = state.pattern.events.filter(e => !e._auto);
+
   events.forEach(ev => {
-    const idx = Math.round(ev.timeSeconds / stepDuration);
-    if (idx >= 0 && idx < total) {
-      const ex = state.steps[ev.laneId][idx];
-      if (!ex || !ex.active || ex.sourceType === 'auto')
-        state.steps[ev.laneId][idx] = { active: true, sourceType: 'auto' };
+    const idx = Math.round(ev.timeSeconds / stepDur);
+    if (idx < 0 || idx >= totalSteps) return;
+    // 既に同じトラック・ステップがあれば上書きしない
+    const exists = state.pattern.events.find(e => e.track === ev.track && e.step === idx);
+    if (!exists) {
+      state.pattern.events.push({
+        track:    ev.track,
+        step:     idx,
+        velocity: Math.round(ev.confidence * 100) || 80,
+        _auto:    true,
+      });
     }
   });
-}
-
-async function runAnalysis(onProgress) {
-  onProgress(0.05, '音源を変換中...');
-  const mono = await resampleToMono(state.audioBuffer);
-
-  onProgress(0.2, 'オンセット検出中...');
-  await sleep(20);
-  const { onsets } = detectOnsets(mono);
-
-  onProgress(0.55, `${onsets.length}個検出。BPM推定中...`);
-  await sleep(20);
-  const bpm = estimateBPM(onsets);
-
-  onProgress(0.7, `BPM: ${bpm}。周波数分類中...`);
-  await sleep(20);
-  const events = classifyOnsets(onsets, mono);
-
-  onProgress(0.9, 'グリッドに配置中...');
-  await sleep(10);
-
-  const measuresNeeded = Math.max(4, Math.ceil(state.audioDuration * (bpm / 60) / 4));
-  if (measuresNeeded !== state.measures) {
-    state.measures = measuresNeeded;
-    initSteps(state.measures);
-  }
-  snapToGrid(events, bpm, state.measures);
-
-  onProgress(1.0, '完了');
-  return { bpm, eventCount: events.length };
+  state.pattern.events.sort((a, b) => a.step - b.step);
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-// ── 5. GRID UI ──────────────────────────────────────────────
+// 解析実行
+async function runDrumAnalysis() {
+  const fileInput  = document.getElementById('analyzeFileInput');
+  const bpmInput2  = document.getElementById('analyzeBpmInput');
+  const barsInput2 = document.getElementById('analyzeBarsInput');
+  const progWrap   = document.getElementById('analyzeProgressWrap');
+  const progBar    = document.getElementById('analyzeProgressBar');
+  const progLabel  = document.getElementById('analyzeProgressLabel');
+  const resultDiv  = document.getElementById('analyzeResult');
+  const startBtn   = document.getElementById('analyzeStartBtn');
 
-function renderGrid() {
-  const laneHeaders = document.getElementById('lane-headers');
-  const stepGrid    = document.getElementById('step-grid');
-  const ruler       = document.getElementById('measure-ruler');
-  const total       = totalSteps();
-  const stepW       = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--step-w'));
+  const file = fileInput.files[0];
+  if (!file) return;
 
-  laneHeaders.innerHTML = '';
-  stepGrid.innerHTML    = '';
-  ruler.innerHTML       = '';
-
-  for (let m = 0; m < state.measures; m++) {
-    const el = document.createElement('div');
-    el.className = 'ruler-measure';
-    el.style.width = (STEPS_PER_MEASURE * stepW) + 'px';
-    el.textContent = `M${m + 1}`;
-    ruler.appendChild(el);
+  function setProgress(pct, msg) {
+    progBar.style.width = (pct * 100) + '%';
+    progLabel.textContent = msg;
   }
 
-  LANES.forEach(lane => {
-    const hdr = document.createElement('div');
-    hdr.className = 'lane-header';
-    hdr.dataset.lane = lane.id;
-    hdr.textContent  = lane.name;
-    laneHeaders.appendChild(hdr);
+  startBtn.disabled = true;
+  progWrap.style.display = 'block';
+  resultDiv.style.display = 'none';
 
-    const row = document.createElement('div');
-    row.className    = 'lane-row';
-    row.dataset.lane = lane.id;
+  try {
+    await ensureAudio();
 
-    for (let i = 0; i < total; i++) {
-      const beat       = Math.floor(i % STEPS_PER_MEASURE / 4);
-      const isMeasureS = i % STEPS_PER_MEASURE === 0;
-      const isBeatS    = i % 4 === 0;
+    setProgress(0.05, '音源を読み込み中...');
+    const arrayBuffer = await file.arrayBuffer();
+    const audioBuffer = await state.audioContext.decodeAudioData(arrayBuffer);
 
-      const cell = document.createElement('div');
-      cell.className = 'step-cell';
-      cell.dataset.lane  = lane.id;
-      cell.dataset.idx   = i;
-      cell.dataset.beat  = beat;
-      if (isBeatS)   cell.dataset.beatStart    = 'true';
-      if (isMeasureS) cell.dataset.measureStart = 'true';
+    setProgress(0.15, 'モノラル変換中...');
+    await sleep(20);
+    const mono = await resampleToMono(audioBuffer);
 
-      const dot = document.createElement('div');
-      dot.className = 'dot';
-      cell.appendChild(dot);
-      updateCellVisual(cell, lane.id, i);
-      cell.addEventListener('pointerdown',  onStepPointerDown);
-      cell.addEventListener('pointerenter', onStepPointerEnter);
-      row.appendChild(cell);
-    }
-    stepGrid.appendChild(row);
-  });
-}
+    setProgress(0.30, 'オンセット検出中...');
+    await sleep(20);
+    const onsets = detectOnsets(mono);
 
-function updateCellVisual(cell, laneId, idx) {
-  const step = getStep(laneId, idx);
-  cell.classList.remove('active-auto', 'active-manual', 'playhead');
-  if (step.active)
-    cell.classList.add(step.sourceType === 'auto' ? 'active-auto' : 'active-manual');
-  if (idx === state.currentStep)
-    cell.classList.add('playhead');
-}
+    setProgress(0.55, `${onsets.length}個検出。BPM推定中...`);
+    await sleep(20);
+    let bpm = parseInt(bpmInput2.value);
+    if (!bpm || isNaN(bpm)) bpm = estimateBPM(onsets);
+    bpm = Math.max(40, Math.min(240, bpm));
 
-function refreshAllCells() {
-  document.querySelectorAll('.step-cell').forEach(cell =>
-    updateCellVisual(cell, cell.dataset.lane, parseInt(cell.dataset.idx))
-  );
-}
+    setProgress(0.70, `BPM: ${bpm}。周波数分類中...`);
+    await sleep(20);
+    const events = classifyOnsets(onsets, mono);
 
-// ── 6. POINTER EDITING ──────────────────────────────────────
+    setProgress(0.88, 'グリッドに配置中...');
+    await sleep(10);
 
-let pointerDown = false, pointerLaneId = null, pointerIntent = null;
+    // 小節数を設定
+    const measures = parseInt(barsInput2.value) || 4;
+    state.pattern.measures  = measures;
+    state.pattern.bpm       = bpm;
+    state.pattern.gridMode  = 's'; // 16分固定
+    snapEventsToGrid(events, bpm, measures);
 
-function onStepPointerDown(e) {
-  e.preventDefault();
-  pointerDown   = true;
-  pointerLaneId = e.currentTarget.dataset.lane;
-  const idx     = parseInt(e.currentTarget.dataset.idx);
-  const step    = getStep(pointerLaneId, idx);
-  pointerIntent = (state.editMode === 'draw' && !step.active) ? 'activate' : 'deactivate';
-  applyPointerToCell(e.currentTarget);
-  document.addEventListener('pointerup', () => {
-    pointerDown = false; pointerLaneId = null; pointerIntent = null;
-  }, { once: true });
-}
+    setProgress(1.0, '完了');
+    savePattern();
+    renderAll();
 
-function onStepPointerEnter(e) {
-  if (!pointerDown || e.currentTarget.dataset.lane !== pointerLaneId) return;
-  applyPointerToCell(e.currentTarget);
-}
+    resultDiv.style.display = 'block';
+    resultDiv.textContent   = `✓ BPM: ${bpm} / ${events.length}イベント → ${state.pattern.events.length}ステップ配置`;
 
-function applyPointerToCell(cell) {
-  const laneId = cell.dataset.lane;
-  const idx    = parseInt(cell.dataset.idx);
-  setStep(laneId, idx, pointerIntent === 'activate', 'manual');
-  updateCellVisual(cell, laneId, idx);
-}
+    // モーダルを閉じる
+    await sleep(1500);
+    document.getElementById('analyzeModal').style.display = 'none';
 
-// ── 7. SYNTH SAMPLES ────────────────────────────────────────
-
-const synthBufs = {};
-
-// 楽器別ゲイン（最終音量バランス）
-const LANE_GAIN = {
-  kick:   1.0,
-  snare:  0.85,
-  hihat:  0.6,
-  tom12:  0.85,
-  tom13:  0.85,
-  tom16:  0.9,
-  crash:  0.7,
-  ride:   0.65,
-  splash: 0.55,
-};
-
-// オフラインレンダリング共通ヘルパー
-// fn(data, sr, length) でバッファを直接書き込む
-function renderSynth(dur, fn) {
-  const sr     = audioCtx.sampleRate;
-  const len    = Math.ceil(sr * dur);
-  const buf    = audioCtx.createBuffer(1, len, sr);
-  const data   = buf.getChannelData(0);
-  fn(data, sr, len);
-
-  // ピークノーマライズ（0.95 を超えないように）
-  let peak = 0;
-  for (let i = 0; i < len; i++) peak = Math.max(peak, Math.abs(data[i]));
-  if (peak > 0.01) {
-    const scale = 0.95 / peak;
-    for (let i = 0; i < len; i++) data[i] *= scale;
-  }
-  return buf;
-}
-
-function makeSynthBufs() {
-
-  // ── KICK ──────────────────────────────────────────────────
-  // サイン波 + ピッチエンベロープ + ソフトクリップ
-  // ノイズ成分は最初2msのクリックのみ、それ以外は純粋なサイン
-  synthBufs.kick = renderSynth(0.55, (d, sr, len) => {
-    let phase = 0;
-    for (let i = 0; i < len; i++) {
-      const t   = i / sr;
-      // ピッチ: 80Hz → 40Hz（急降下）
-      const freq = 40 + 40 * Math.exp(-t * 30);
-      phase += (2 * Math.PI * freq) / sr;
-      // アンプ: 鋭いアタック + ゆっくりディケイ
-      const amp  = Math.exp(-t * 8) * (1 - Math.exp(-t * 150));
-      // クリック: 最初2msのみ、ごく控えめに
-      const click = (t < 0.002) ? (Math.random() * 2 - 1) * 0.08 : 0;
-      // ソフトクリップ（tanh）で自然な歪み
-      d[i] = Math.tanh(Math.sin(phase) * amp * 1.8) * 0.9 + click;
-    }
-  });
-
-  // ── SNARE ─────────────────────────────────────────────────
-  // 基音サイン（200Hz）+ スナッピー感のためのバンドパスノイズ
-  // ノイズはシードされた疑似乱数で安定させる
-  synthBufs.snare = renderSynth(0.30, (d, sr, len) => {
-    // 疑似乱数（LCG）でノイズを安定生成
-    let rng = 12345;
-    const rand = () => {
-      rng = (rng * 1664525 + 1013904223) & 0xffffffff;
-      return (rng / 0x80000000) - 1;
-    };
-    // バンドパスノイズ用の簡易一次IIR
-    let lpState = 0, hpState = 0;
-    const lpCoef = 0.15;  // ~3kHz ローパス
-    const hpCoef = 0.92;  // ~300Hz ハイパス
-
-    for (let i = 0; i < len; i++) {
-      const t       = i / sr;
-      const toneEnv = Math.exp(-t * 22);
-      const noiseEnv = Math.exp(-t * 16);
-
-      // 基音（200Hz + 180Hz で太さを出す）
-      const tone = (Math.sin(2 * Math.PI * 200 * t) * 0.6
-                  + Math.sin(2 * Math.PI * 180 * t) * 0.3) * toneEnv;
-
-      // ノイズをバンドパス処理（ローパス→ハイパス）
-      const raw  = rand();
-      lpState    = lpState + lpCoef * (raw - lpState);
-      hpState    = hpCoef * (hpState + lpState - (i > 0 ? d[i-1] : 0));
-      const snap  = lpState * noiseEnv * 0.9;
-
-      d[i] = tone * 0.5 + snap * 0.55;
-    }
-  });
-
-  // ── HIHAT (closed) ────────────────────────────────────────
-  // 金属的な倍音のみ、ノイズ不使用
-  // 非整数倍音4本をデチューンして金属質感を出す
-  synthBufs.hihat = renderSynth(0.10, (d, sr, len) => {
-    // 実際のシンバル倍音比（非整数）
-    const partials = [
-      { f: 3700, a: 1.0 },
-      { f: 5503, a: 0.6 },
-      { f: 7129, a: 0.4 },
-      { f: 9200, a: 0.25 },
-    ];
-    for (let i = 0; i < len; i++) {
-      const t   = i / sr;
-      const env = Math.exp(-t * 60);  // 素早くディケイ
-      let v = 0;
-      for (const p of partials) {
-        v += Math.sin(2 * Math.PI * p.f * t) * p.a;
-      }
-      d[i] = v * env;
-    }
-  });
-
-  // ── TOM 共通 ──────────────────────────────────────────────
-  function makeTom(rootHz, decay, dur) {
-    return renderSynth(dur, (d, sr, len) => {
-      let phase = 0;
-      for (let i = 0; i < len; i++) {
-        const t    = i / sr;
-        // ピッチエンベロープ（根音の1.5倍から落ちる）
-        const freq = rootHz * (1 + 0.5 * Math.exp(-t * 35));
-        phase += (2 * Math.PI * freq) / sr;
-        // アンプ
-        const amp  = Math.exp(-t * decay) * (1 - Math.exp(-t * 200));
-        // 基音 + 2倍音で胴の鳴り感
-        d[i] = (Math.sin(phase) * 0.8 + Math.sin(phase * 2.0) * 0.15) * amp;
-      }
-    });
-  }
-
-  synthBufs.tom12 = makeTom(220, 10, 0.38);  // 12": 高め
-  synthBufs.tom13 = makeTom(160,  8, 0.42);  // 13": 中
-  synthBufs.tom16 = makeTom( 95,  6, 0.52);  // 16": フロアタム
-
-  // ── CRASH ─────────────────────────────────────────────────
-  // 非整数倍音のみ（ノイズなし）で金属感、長いディケイ
-  synthBufs.crash = renderSynth(2.0, (d, sr, len) => {
-    const partials = [
-      { f: 1800, a: 1.0 },
-      { f: 2763, a: 0.7 },
-      { f: 4050, a: 0.55 },
-      { f: 5832, a: 0.4 },
-      { f: 8100, a: 0.28 },
-      { f: 11340, a: 0.18 },
-    ];
-    for (let i = 0; i < len; i++) {
-      const t   = i / sr;
-      const env = Math.exp(-t * 2.8);
-      let v = 0;
-      for (const p of partials) {
-        v += Math.sin(2 * Math.PI * p.f * t) * p.a;
-      }
-      d[i] = v * env;
-    }
-  });
-
-  // ── RIDE ──────────────────────────────────────────────────
-  // クラッシュより高域・倍音を締めてピンとした音に
-  synthBufs.ride = renderSynth(1.4, (d, sr, len) => {
-    const partials = [
-      { f: 2350, a: 1.0 },
-      { f: 3700, a: 0.65 },
-      { f: 5520, a: 0.45 },
-      { f: 7600, a: 0.28 },
-      { f: 10200, a: 0.15 },
-    ];
-    for (let i = 0; i < len; i++) {
-      const t   = i / sr;
-      const env = Math.exp(-t * 4.0);
-      let v = 0;
-      for (const p of partials) {
-        v += Math.sin(2 * Math.PI * p.f * t) * p.a;
-      }
-      d[i] = v * env;
-    }
-  });
-
-  // ── SPLASH ────────────────────────────────────────────────
-  // 高域倍音 + 極速ディケイ
-  synthBufs.splash = renderSynth(0.35, (d, sr, len) => {
-    const partials = [
-      { f: 4200, a: 1.0 },
-      { f: 6300, a: 0.7 },
-      { f: 9100, a: 0.45 },
-      { f: 12500, a: 0.25 },
-    ];
-    for (let i = 0; i < len; i++) {
-      const t   = i / sr;
-      const env = Math.exp(-t * 15);
-      let v = 0;
-      for (const p of partials) {
-        v += Math.sin(2 * Math.PI * p.f * t) * p.a;
-      }
-      d[i] = v * env;
-    }
-  });
-}
-
-function playSampleById(laneId, time) {
-  const buf = synthBufs[laneId];
-  if (!buf) return;
-  const src = audioCtx.createBufferSource();
-  src.buffer = buf;
-  const g = audioCtx.createGain();
-  g.gain.value = LANE_GAIN[laneId] ?? 0.8;
-  src.connect(g);
-  g.connect(audioCtx.destination);
-  src.start(time);
-}
-
-// ── 8. PLAYER (Tone.js) ─────────────────────────────────────
-
-let toneSequence = null;
-
-function startPlayback() {
-  if (state.isPlaying) return;
-  if (audioCtx.state === 'suspended') audioCtx.resume();
-
-  Tone.Transport.bpm.value = state.bpm;
-  Tone.Transport.loop      = state.isLooping;
-  if (state.isLooping) {
-    Tone.Transport.loopStart = 0;
-    Tone.Transport.loopEnd   = `${state.measures}m`;
-  }
-
-  const total = totalSteps();
-
-  toneSequence = new Tone.Sequence((time, step) => {
-    state.currentStep = step;
-    LANES.forEach(lane => {
-      if (getStep(lane.id, step).active) playSampleById(lane.id, time);
-    });
-    Tone.getDraw().schedule(() => refreshAllCells(), time);
-  }, Array.from({ length: total }, (_, i) => i), '16n');
-
-  toneSequence.start(0);
-  Tone.Transport.start();
-  state.isPlaying = true;
-  document.getElementById('btn-play').classList.add('playing');
-  document.getElementById('btn-play').textContent = '⏸';
-}
-
-function stopPlayback() {
-  if (!state.isPlaying) return;
-  Tone.Transport.stop();
-  if (toneSequence) { toneSequence.stop(); toneSequence.dispose(); toneSequence = null; }
-  state.isPlaying   = false;
-  state.currentStep = -1;
-  document.getElementById('btn-play').classList.remove('playing');
-  document.getElementById('btn-play').textContent = '▶';
-  refreshAllCells();
-}
-
-// ── 9. TOAST ────────────────────────────────────────────────
-
-let toastTimer = null;
-function showToast(msg) {
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 2000);
-}
-
-// ── 10. JSON SAVE / LOAD ─────────────────────────────────────
-
-function saveJSON() {
-  const data = {
-    version:  1,
-    bpm:      state.bpm,
-    measures: state.measures,
-    steps:    state.steps,
-  };
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = `drumscript_${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-  showToast('💾 JSONを保存しました');
-}
-
-async function loadJSON(file) {
-  const text = await file.text();
-  const data = JSON.parse(text);
-  stopPlayback();
-  state.bpm      = data.bpm      ?? DEFAULT_BPM;
-  state.measures = data.measures ?? 4;
-  state.steps    = {};
-  // ensure all lanes exist with correct length
-  initSteps(state.measures);
-  LANES.forEach(lane => {
-    if (data.steps?.[lane.id]) {
-      data.steps[lane.id].forEach((s, i) => {
-        if (i < state.steps[lane.id].length) state.steps[lane.id][i] = s;
-      });
-    }
-  });
-  document.getElementById('bpm-input').value = state.bpm;
-  Tone.Transport.bpm.value = state.bpm;
-  renderGrid();
-  showToast('📂 JSONを読み込みました');
-}
-
-// ── 11. EVENT WIRING ─────────────────────────────────────────
-
-function setBPM(v) {
-  v = Math.max(40, Math.min(240, v));
-  state.bpm = v;
-  document.getElementById('bpm-input').value = v;
-  Tone.Transport.bpm.value = v;
-}
-
-function setProgress(pct, msg) {
-  document.getElementById('progress-bar').style.setProperty('--progress', (pct * 100) + '%');
-  document.getElementById('progress-label').textContent = msg;
-}
-
-function wireEvents() {
-  // Audio file
-  document.getElementById('file-input').addEventListener('change', async e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try { await loadAudioFile(file); }
-    catch (err) { alert('読み込み失敗: ' + err.message); }
-  });
-
-  // Analyze
-  document.getElementById('btn-analyze').addEventListener('click', async () => {
-    stopPlayback();
-    const wrap = document.getElementById('progress-bar-wrap');
-    const btn  = document.getElementById('btn-analyze');
-    btn.disabled = true;
-    wrap.hidden  = false;
-    setProgress(0, '解析開始...');
-    try {
-      const { bpm, eventCount } = await runAnalysis(setProgress);
-      setBPM(bpm);
-      setProgress(1, `完了 — BPM: ${bpm} / ${eventCount}イベント`);
-      await sleep(1200);
-      wrap.hidden = true;
-      renderGrid();
-    } catch (err) {
-      document.getElementById('progress-label').textContent = 'エラー: ' + err.message;
-      console.error(err);
-    } finally {
-      btn.disabled = false;
-    }
-  });
-
-  // Play / Stop
-  document.getElementById('btn-play').addEventListener('click', () => {
-    if (state.isPlaying) stopPlayback(); else startPlayback();
-  });
-  document.getElementById('btn-stop').addEventListener('click', stopPlayback);
-
-  // Loop
-  const loopBtn = document.getElementById('btn-loop');
-  loopBtn.classList.toggle('active', state.isLooping);
-  loopBtn.addEventListener('click', () => {
-    state.isLooping = !state.isLooping;
-    loopBtn.classList.toggle('active', state.isLooping);
-    Tone.Transport.loop    = state.isLooping;
-    Tone.Transport.loopEnd = `${state.measures}m`;
-    showToast(state.isLooping ? '⟳ ループ ON' : '⟳ ループ OFF');
-  });
-
-  // BPM input + nudge buttons
-  document.getElementById('bpm-input').addEventListener('change', e => setBPM(parseInt(e.target.value)));
-  document.getElementById('bpm-input').addEventListener('input',  e => {
-    const v = parseInt(e.target.value);
-    if (v >= 40 && v <= 240) { state.bpm = v; Tone.Transport.bpm.value = v; }
-  });
-  document.getElementById('bpm-down').addEventListener('click', () => setBPM(state.bpm - 1));
-  document.getElementById('bpm-up').addEventListener('click',   () => setBPM(state.bpm + 1));
-  // Long-press BPM nudge
-  let nudgeInterval = null;
-  ['bpm-down','bpm-up'].forEach(id => {
-    const btn   = document.getElementById(id);
-    const delta = id === 'bpm-up' ? 1 : -1;
-    btn.addEventListener('pointerdown', () => {
-      nudgeInterval = setInterval(() => setBPM(state.bpm + delta), 80);
-    });
-    ['pointerup','pointerleave'].forEach(ev =>
-      btn.addEventListener(ev, () => clearInterval(nudgeInterval))
-    );
-  });
-
-  // Draw / Erase
-  document.getElementById('btn-draw').addEventListener('click', () => {
-    state.editMode = 'draw';
-    document.getElementById('btn-draw').classList.add('active');
-    document.getElementById('btn-erase').classList.remove('active');
-  });
-  document.getElementById('btn-erase').addEventListener('click', () => {
-    state.editMode = 'erase';
-    document.getElementById('btn-erase').classList.add('active');
-    document.getElementById('btn-draw').classList.remove('active');
-  });
-
-  // Clear
-  document.getElementById('btn-clear').addEventListener('click', () => {
-    if (!confirm('すべてのステップを消去しますか？')) return;
-    stopPlayback(); initSteps(state.measures); renderGrid();
-  });
-
-  // Demo
-  document.getElementById('btn-demo').addEventListener('click', () => {
-    stopPlayback(); loadDemoPattern(); renderGrid();
-    showToast('▣ デモパターンを読み込みました');
-  });
-
-  // JSON Save
-  document.getElementById('btn-save').addEventListener('click', saveJSON);
-
-  // JSON Load
-  document.getElementById('json-input').addEventListener('change', async e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try { await loadJSON(file); }
-    catch (err) { alert('読み込み失敗: ' + err.message); }
-    e.target.value = '';
-  });
-
-  // PNG / PDF export
-  document.getElementById('btn-png').addEventListener('click', exportPNG);
-  document.getElementById('btn-pdf').addEventListener('click', exportPDF);
-
-  document.addEventListener('contextmenu', e => e.preventDefault());
-
-  // Sync ruler scroll
-  const scrollWrap = document.getElementById('grid-scroll-wrap');
-  const ruler      = document.getElementById('measure-ruler');
-  scrollWrap.addEventListener('scroll', () => {
-    ruler.style.transform = `translateX(-${scrollWrap.scrollLeft}px)`;
-  });
-}
-
-// ── 12. DEMO PATTERN ────────────────────────────────────────
-
-function loadDemoPattern() {
-  state.measures = 4;
-  initSteps(4);
-  const kick  = [1,0,0,0, 0,0,1,0, 0,0,0,0, 1,0,0,0];
-  const snare = [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0];
-  const hihat = [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0];
-  for (let m = 0; m < 4; m++) {
-    for (let s = 0; s < 16; s++) {
-      const gi = m * 16 + s;
-      if (kick[s])  setStep('kick',  gi, true, 'manual');
-      if (snare[s]) setStep('snare', gi, true, 'manual');
-      if (hihat[s]) setStep('hihat', gi, true, 'manual');
-    }
+  } catch(err) {
+    progLabel.textContent = '⚠ エラー: ' + err.message;
+    console.error(err);
+  } finally {
+    startBtn.disabled = false;
   }
 }
 
-// ── 13. SCORE EXPORT (Canvas → PNG / PDF) ───────────────────
-//
-//  ドラム譜をCanvasに描画する。
-//  レイアウト:
-//    - 1行 = 1小節 = 16ステップ
-//    - 縦軸 = レーン（上がシンバル、下がキック）
-//    - ヒット = ●（通常音符）または ✕（シンバル系）
-//    - 五線ではなく、ドラム譜慣習の「1本線ペルカッション譜」スタイル
-//
-//  PDFはjsPDFを使わず、ブラウザのprint APIで実現する
-//  （外部ライブラリ不要・依存ゼロ）
-
-// ── 13. SCORE EXPORT (VexFlow) ───────────────────────────────
-//
-//  VexFlowを使った本格ドラム譜レンダリング
-//  参照: アップロードされたindex.htmlの renderScore() 実装
-//
-//  設計:
-//   - percussion clef + 4/4拍子
-//   - 上声部(stem↑): シンバル系 (crash/splash/ride/hihat)
-//   - 下声部(stem↓): タム・スネア・キック
-//   - 連桁(Beam.generateBeams)で16分音符をグループ化
-//   - 休符を自動挿入してVexFlowに正しい小節を渡す
-//   - PNG: Canvas経由でダウンロード
-//   - PDF: 印刷ダイアログ経由
-
-// VexFlowドラムマップ: 各楽器のキー・声部・符頭形状
-const VF_DRUM_MAP = {
-  // bass clef 正確な音名→位置対応
-  // 第1線=G2, 第2線=B2, 第3線=D3, 第4線=F3, 第5線=A3
-  // 間: 第1間=A2, 第2間=C3, 第3間=E3, 第4間=G3
-  // 五線上: B3（第5線のすぐ上）
-  crash:  { key:'d/4/x',  stem:  1 },  // 加線1本上の間 ×
-  splash: { key:'d/4/x',  stem:  1 },  // 同上 ×
-  ride:   { key:'b/3/x',  stem:  1 },  // 第5線のすぐ上 ×
-  hihat:  { key:'b/3/x',  stem:  1 },  // 第5線のすぐ上 ×
-  tom12:  { key:'g/3',    stem: -1 },  // 第4間
-  tom13:  { key:'e/3',    stem: -1 },  // 第3間
-  snare:  { key:'d/3',    stem: -1 },  // 第3線
-  tom16:  { key:'b/2',    stem: -1 },  // 第2線
-  kick:   { key:'f/2',    stem: -1 },  // 第1線より下
-};
-
-// 音名の高さ比較用
-function vfPitch(key) {
-  const m = key.match(/([a-g])\/(\d)/i);
-  if (!m) return 0;
-  const noteVal = { c:0, d:1, e:2, f:3, g:4, a:5, b:6 };
-  return parseInt(m[2]) * 7 + (noteVal[m[1].toLowerCase()] ?? 0);
-}
-
-// ステップデータを各小節のスロットに分割
-function buildSlots(measureIdx, voice) {
-  const SPM = STEPS_PER_MEASURE;
-  const slots = Array.from({ length: SPM }, () => []);
-  LANES.forEach(lane => {
-    const def = VF_DRUM_MAP[lane.id];
-    if (!def) return;
-    if (def.stem !== voice) return;
-    for (let s = 0; s < SPM; s++) {
-      const gIdx = measureIdx * SPM + s;
-      if (getStep(lane.id, gIdx).active) {
-        slots[s].push({ laneId: lane.id, def });
-      }
-    }
-  });
-  return slots;
-}
-
-// スロット列からVexFlow StaveNote列を生成
-// 音符長 = 次のヒットまでの距離（ただし4/2/1ステップに丸める）
-// 音符を置いたらその長さ分だけiを進める（拍数の整合性を保つ）
-function buildVfNotes(slots, stemDir, VF) {
-  const { StaveNote, GhostNote } = VF;
-  const L = slots.length; // 16
-  const notes = [];
-
-  const DUR_TABLE = [
-    { steps: 4, dur: 'q'  },
-    { steps: 2, dur: '8'  },
-    { steps: 1, dur: '16' },
-  ];
-
-  function stepsToNote(steps) {
-    for (const d of DUR_TABLE) {
-      if (steps >= d.steps) return d;
-    }
-    return DUR_TABLE[DUR_TABLE.length - 1];
+// 解析ボタン配線
+document.getElementById('analyzeBtn').addEventListener('click', () => {
+  document.getElementById('analyzeModal').style.display = 'flex';
+});
+document.getElementById('analyzeFileInput').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (file) {
+    document.getElementById('analyzeFileName').textContent = file.name;
+    document.getElementById('analyzeStartBtn').disabled = false;
+    document.getElementById('analyzeProgressWrap').style.display = 'none';
+    document.getElementById('analyzeResult').style.display = 'none';
   }
+});
+document.getElementById('analyzeStartBtn').addEventListener('click', runDrumAnalysis);
 
-  // 次のヒットまでの距離
-  function distToNext(from) {
-    for (let j = from + 1; j < L; j++) {
-      if (slots[j].length > 0) return j - from;
-    }
-    return L - from;
-  }
-
-  let i = 0;
-  while (i < L) {
-    if (slots[i].length > 0) {
-      const dist    = distToNext(i);
-      const durDef  = stepsToNote(dist);
-
-      const evs  = slots[i].slice().sort((a, b) => vfPitch(b.def.key) - vfPitch(a.def.key));
-      const keys = evs.map(e => e.def.key);
-
-      notes.push(new StaveNote({
-        keys,
-        duration: durDef.dur,
-        stem_direction: stemDir,
-        clef: 'bass',
-      }));
-
-      // 音符長の分だけ進める（残りのステップはGhostNoteで埋める）
-      i += durDef.steps;
-
-    } else {
-      // 空ステップ → GhostNoteで埋める
-      let gap = 0;
-      while (i + gap < L && slots[i + gap].length === 0) gap++;
-
-      while (gap > 0) {
-        const d = stepsToNote(gap);
-        let ghost;
-        if (GhostNote) {
-          ghost = new GhostNote({ duration: d.dur });
-        } else {
-          ghost = new StaveNote({
-            keys: [stemDir === 1 ? 'b/3' : 'd/3'],
-            duration: d.dur + 'r',
-            stem_direction: stemDir,
-          });
-          ghost.setStyle({ fillStyle: 'transparent', strokeStyle: 'transparent' });
-        }
-        notes.push(ghost);
-        gap -= d.steps;
-        i   += d.steps;
-      }
-    }
-  }
-  return notes;
-}
-
-function buildVexFlowScore() {
-  if (typeof Vex === 'undefined') return null;
-  const VF = Vex.Flow;
-  const { Renderer, Stave, Voice, Formatter, Beam } = VF;
-
-  const ms     = state.measures;
-  const MPR    = 4;    // measures per row
-  const SW     = 250;  // stave width（通常小節）
-  const SW1    = 310;  // 第1小節（clef+拍子記号の分だけ広く）
-  const SX     = 14;
-  const SY     = 40;   // 上余白（シンバルが五線上に出る分）
-  const ROW_H  = 180;
-  const numRows = Math.ceil(ms / MPR);
-
-  // 行ごとの総幅（第1行は SW1 + (MPR-1)*SW、他は MPR*SW）
-  const rowW = (row) => row === 0 ? SW1 + (MPR - 1) * SW : MPR * SW;
-  const totalW = SX + rowW(0) + 20;
-  const totalH = SY + numRows * ROW_H + 40;
-
-  const div = document.createElement('div');
-  div.style.cssText = 'position:absolute;left:-9999px;top:-9999px;';
-  document.body.appendChild(div);
-
-  const renderer = new Renderer(div, Renderer.Backends.SVG);
-  renderer.resize(totalW, totalH);
-  const ctx = renderer.getContext();
-  const svg = div.querySelector('svg');
-  if (svg) svg.style.background = '#fff';
-
-  for (let row = 0; row < numRows; row++) {
-    for (let mi = 0; mi < MPR; mi++) {
-      const mIdx   = row * MPR + mi;
-      if (mIdx >= ms) break;
-
-      const isFirst = (mIdx === 0);
-      // X座標：第1小節はSW1、それ以降はSW
-      let x;
-      if (row === 0) {
-        x = SX + (mi === 0 ? 0 : SW1 + (mi - 1) * SW);
-      } else {
-        x = SX + mi * SW;
-      }
-      const y   = SY + row * ROW_H;
-      const stW = isFirst ? SW1 : SW;
-
-      const stave = new Stave(x, y, stW);
-      if (isFirst) stave.addClef('bass').addTimeSignature('4/4');
-      stave.setContext(ctx).draw();
-
-      // 上声部・下声部
-      const upNotes = buildVfNotes(buildSlots(mIdx,  1),  1, VF);
-      const dnNotes = buildVfNotes(buildSlots(mIdx, -1), -1, VF);
-
-      const vUp = new Voice({ num_beats: 4, beat_value: 4 }).setStrict(false);
-      const vDn = new Voice({ num_beats: 4, beat_value: 4 }).setStrict(false);
-      vUp.addTickables(upNotes);
-      vDn.addTickables(dnNotes);
-
-      // format幅：stave幅 - modifiers幅（clef+拍子=約90、通常=約20）
-      const fmtW = stW - (isFirst ? 90 : 20);
-      new Formatter().joinVoices([vUp, vDn]).format([vUp, vDn], fmtW);
-
-      // Beam（GhostNoteと休符を除く）
-      const playable = n => {
-        if (!n || typeof n.isRest !== 'function') return false;
-        if (n.isRest()) return false;
-        if (n.constructor?.CATEGORY === 'ghostnotes') return false;
-        return true;
-      };
-      const beamUp = Beam.generateBeams(upNotes.filter(playable), { stem_direction:  1 });
-      const beamDn = Beam.generateBeams(dnNotes.filter(playable), { stem_direction: -1 });
-
-      vUp.draw(ctx, stave);
-      vDn.draw(ctx, stave);
-      beamUp.forEach(b => b.setContext(ctx).draw());
-      beamDn.forEach(b => b.setContext(ctx).draw());
-    }
-  }
-
-  return { div, svg, totalW, totalH };
-}
-
-function exportPNG() {
-  const result = buildVexFlowScore();
-  if (!result) { showToast('⚠ VexFlowが読み込まれていません'); return; }
-  const { div, svg, totalW, totalH } = result;
-
-  // SVG → Canvas → PNG
-  const svgData = new XMLSerializer().serializeToString(svg);
-  const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(svgBlob);
-  const img = new Image();
-  img.onload = () => {
-    const SCALE = 2;
-    const canvas = document.createElement('canvas');
-    canvas.width  = totalW  * SCALE;
-    canvas.height = totalH  * SCALE;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.scale(SCALE, SCALE);
-    ctx.drawImage(img, 0, 0);
-    URL.revokeObjectURL(url);
-    document.body.removeChild(div);
-    const a = document.createElement('a');
-    a.href = canvas.toDataURL('image/png');
-    a.download = `drumscript_score_${Date.now()}.png`;
-    a.click();
-    showToast('🖼 PNG を保存しました');
-  };
-  img.src = url;
-}
-
-function exportPDF() {
-  const result = buildVexFlowScore();
-  if (!result) { showToast('⚠ VexFlowが読み込まれていません'); return; }
-  const { div, svg } = result;
-
-  const svgData = new XMLSerializer().serializeToString(svg);
-  document.body.removeChild(div);
-
-  const win = window.open('', '_blank');
-  if (!win) { alert('ポップアップをブロックしないでください'); return; }
-  win.document.write(`<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>DrumScript Score</title>
-<style>
-  *{margin:0;padding:0;box-sizing:border-box;}
-  body{background:#fff;padding:8mm;}
-  svg{width:100%;height:auto;display:block;}
-  @media print{
-    @page{size:A4 landscape;margin:8mm;}
-    body{padding:0;print-color-adjust:exact;-webkit-print-color-adjust:exact;}
-  }
-</style></head><body>
-${svgData}
-<script>window.onload=()=>window.print();<\/script>
-</body></html>`);
-  win.document.close();
-  showToast('📄 印刷ダイアログを開きました');
-}
-
-// ── BOOT ─────────────────────────────────────────────────────
-
-async function boot() {
-  initSteps(state.measures);
-  loadDemoPattern();
-  renderGrid();
-  makeSynthBufs();   // 同期処理に変更
-  wireEvents();
-}
-
-boot();
+renderAll();
+savePattern();
 </script>
 </body>
 </html>
