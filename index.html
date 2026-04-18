@@ -179,7 +179,6 @@
     .cell.on{background:var(--accentColor,#4ecdc4); box-shadow:inset 0 0 0 1px rgba(255,255,255,.15)}
     .cell.playing{box-shadow:inset 0 0 0 2px rgba(255,255,255,.9); filter:brightness(1.25)}
     .cell.beat{border-left:2px solid rgba(255,255,255,.45); margin-left:-1px;}
-    .cell.beat-odd{background:rgba(255,255,255,.04);}
     .cell.bar{border-left:2px solid rgba(255,230,109,.7)}
     .cell.orn-accent{border-top:3px solid #ff6b35!important}
     .cell.orn-ghost{outline:2px dashed rgba(180,180,255,.5); outline-offset:-2px}
@@ -551,9 +550,6 @@ function renderGrid(){
       if(state.isPlaying && s===state.drawStep) cls.push('playing');
       if(s % spb()===0) cls.push('beat');
       if(s % (spb()*4)===0) cls.push('bar');
-      // 拍番号（0始まり）が奇数の拍に背景色
-      const beatNum = Math.floor(s / spb());
-      if(beatNum % 2 === 1) cls.push('beat-odd');
       if(orn==='accent') cls.push('orn-accent');
       if(orn==='ghost') cls.push('orn-ghost');
       if(orn==='buzz') cls.push('orn-buzz');
