@@ -627,45 +627,63 @@ function renderControls(){
 var _atApi=null, _atDiv=null;
 
 function buildAlphaTex(){
-  var spbVal=spb(), ms=state.pattern.measures;
-  var totalSt=ms*4*spbVal, bpm=state.pattern.bpm;
+  var spbVal=spb(), ms=state.pattern.measures, bpm=state.pattern.bpm;
+  var totalSt=ms*4*spbVal;
+
+  // Track → Articulation names per official docs
   var ART={
     kick:'KickHit', snare:'SnareHit',
     closed_hihat:'HiHatClosed', open_hihat:'HiHatOpen',
     crash:'CrashCymbal1', ride:'RideCymbal1', cup:'RideBell',
     rimshot:'SideStick', tom10:'HighTom', tom12:'HiMidTom', tom16:'HiFloorTom'
   };
+
+  // slots[step] = [event, ...]
   var slots=[];
   for(var si=0;si<totalSt;si++) slots.push([]);
   state.pattern.events.forEach(function(ev){
     if(ev.step>=0&&ev.step<totalSt) slots[ev.step].push(ev);
   });
-  var lines=[String.raw`\track "Drums" \instrument percussion \tempo `+bpm+String.raw` \clef neutral \articulation defaults`];
+
+  // Build AlphaTex per official format:
+  // Score metadata first, then track+instrument+articulation, then bars
+  // Using :16 duration prefix so all beats are 16th-note slots
+  var lines=[];
+
+  // Score-level metadata (before track)
+  lines.push('\\tempo ' + bpm);
+  // Track + instrument metadata  
+  lines.push('\\track "Drums"');
+  lines.push('\\instrument percussion');
+  lines.push('\\clef neutral');
+  lines.push('\\articulation defaults');
+  // All notes are 16th note slots
+  lines.push(':16');
+
   for(var m=0;m<ms;m++){
-    var barLen=4*spbVal, tokens=[], si2=0;
-    while(si2<barLen){
+    var barLen=4*spbVal;
+    var barTokens=[];
+    for(var si2=0;si2<barLen;si2++){
       var abs=m*barLen+si2;
       var evs=slots[abs]||[];
-      var dist=barLen-si2;
-      for(var nj=si2+1;nj<barLen;nj++){
-        if((slots[m*barLen+nj]||[]).length>0){dist=nj-si2;break;}
-      }
-      var steps=dist>=4?4:dist>=2?2:1;
-      var dur=steps===4?'4':steps===2?'8':'16';
       if(evs.length>0){
         var arts=evs.map(function(ev){return ART[ev.track]||'SnareHit';})
                     .filter(function(a,i,arr){return arr.indexOf(a)===i;});
-        var orn=getOrn(evs[0].track,abs);
-        var sfx=orn==='accent'?'{ac}':orn==='ghost'?'{g}':'';
-        tokens.push(arts.length===1?arts[0]+'.'+dur+sfx:'('+arts.join(' ')+').'+dur+sfx);
-      }else{
-        tokens.push('r.'+dur);
+        if(arts.length===1){
+          barTokens.push(arts[0]);
+        } else {
+          barTokens.push('('+arts.join(' ')+')');
+        }
+      } else {
+        barTokens.push('r');
       }
-      si2+=steps;
     }
-    lines.push(tokens.join(' ')+' |');
+    lines.push(barTokens.join(' ') + ' |');
   }
-  return lines.join('\n');
+
+  var tex = lines.join('\n');
+  console.log('[AlphaTex first 200]', tex.slice(0,200));
+  return tex;
 }
 
 function renderScore(){
@@ -673,7 +691,7 @@ function renderScore(){
   if(!scoreDiv) return;
   if(typeof alphaTab==='undefined'){
     scoreDiv.innerHTML='<div style="color:#9090b8;padding:12px">AlphaTab 読込中...</div>';
-    setTimeout(renderScore,600); return;
+    setTimeout(renderScore,800); return;
   }
   var tex=buildAlphaTex();
   if(_atApi&&_atDiv===scoreDiv){
@@ -685,23 +703,26 @@ function renderScore(){
   scoreDiv.appendChild(wrap);
   try{
     _atApi=new alphaTab.AlphaTabApi(wrap,{
-      core:{engine:'svg',logLevel:0},
+      core:{engine:'svg',logLevel:3},
       display:{scale:1.0,barsPerRow:4},
       player:{enablePlayer:false}
     });
     _atDiv=scoreDiv;
     _atApi.error.on(function(e){
-      console.error('AlphaTab:',e);
-      scoreDiv.innerHTML='<div style="color:#e05555;padding:8px;font-size:.82rem">譜面エラー: '+(e.message||JSON.stringify(e))+'</div>';
+      console.error('[AlphaTab error]',e);
+      scoreDiv.innerHTML='<div style="color:#e05555;padding:8px;font-size:.82rem">譜面エラー: '+(e.message||JSON.stringify(e))+'<br><pre style="font-size:.7rem;overflow:auto;max-height:100px">'+tex.slice(0,300)+'</pre></div>';
       _atApi=null;
     });
     _atApi.tex(tex,[0]);
   }catch(e){
+    console.error('[AlphaTab init]',e);
     scoreDiv.innerHTML='<div style="color:#e05555;padding:8px">初期化エラー: '+e.message+'</div>';
     _atApi=null;
   }
 }
+
 function renderAll(){
+
   renderControls();
   renderGrid();
   renderScore();
@@ -709,18 +730,7 @@ function renderAll(){
   jsonArea.value = JSON.stringify(state.pattern, null, 2);
 }
 
-var _masterGain=null;
-function getMaster(){
-  var ctx=state.audioContext; if(!ctx) return null;
-  if(!_masterGain||_masterGain.context!==ctx){
-    _masterGain=ctx.createGain(); _masterGain.gain.value=0.65;
-    var comp=ctx.createDynamicsCompressor();
-    comp.threshold.value=-14; comp.knee.value=6; comp.ratio.value=4;
-    comp.attack.value=0.003; comp.release.value=0.15;
-    _masterGain.connect(comp); comp.connect(getMaster());
-  }
-  return _masterGain;
-}
+// getMaster removed - direct destination used
 function ensureAudio(){
   if(!state.audioContext){
     state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -746,7 +756,7 @@ function buildReverbMix(amount=0){
   conv.buffer = imp;
   const wet = ctx.createGain();
   wet.gain.value = Math.max(0, Math.min(0.35, amount/100));
-  conv.connect(wet).connect(getMaster());
+  conv.connect(wet).connect(ctx.destination);
   return conv;
 }
 function playNoise(time, dur, filterHz, vol, reverb=0, decay=-1){
@@ -762,10 +772,10 @@ function playNoise(time, dur, filterHz, vol, reverb=0, decay=-1){
   filter.type = 'bandpass';
   filter.frequency.value = filterHz;
   const gain = ctx.createGain();
-  gain.gain.setValueAtTime(vol, time);
+  gain.gain.setValueAtTime(vol*0.5, time);
   gain.gain.exponentialRampToValueAtTime(0.0001, time + actualDecay);
   const reverbNode = buildReverbMix(reverb);
-  src.connect(filter).connect(gain).connect(getMaster());
+  src.connect(filter).connect(gain).connect(ctx.destination);
   if(reverbNode) filter.connect(reverbNode);
   src.start(time);
   src.stop(time + dur);
@@ -781,10 +791,10 @@ function playTone(time, f1, f2, dur, vol, wave='sine', reverb=0, attack=0.001){
   o.frequency.setValueAtTime(f1, time);
   o.frequency.exponentialRampToValueAtTime(Math.max(20, f2), time + dur);
   g.gain.setValueAtTime(0.0001, time);
-  g.gain.linearRampToValueAtTime(vol, time + attack);
+  g.gain.linearRampToValueAtTime(vol*0.5, time + attack);
   g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
   const reverbNode = buildReverbMix(reverb);
-  o.connect(filter).connect(g).connect(getMaster());
+  o.connect(filter).connect(g).connect(ctx.destination);
   if(reverbNode) filter.connect(reverbNode);
   o.start(time);
   o.stop(time + dur + 0.02);
@@ -1073,7 +1083,7 @@ function fireWithOrn(trackId, step, time, baseVel){
     var _g=state.audioContext.createGain();
     _src.buffer=_s.buffer;
     _g.gain.setValueAtTime(Math.min(1.2,Math.max(0.05,baseVel)),time);
-    _src.connect(_g).connect(getMaster());
+    _src.connect(_g).connect(state.audioContext.destination);
     _src.start(time);
     return;
   }
