@@ -740,8 +740,25 @@ function buildAlphaTex(){
         st=Math.max(1, Math.round(st));
         var arts=evs.map(function(ev){return ART[ev.track]||'SnareHit';})
                     .filter(function(a,i,arr){return arr.indexOf(a)===i;});
-        tokens.push((arts.length===1?arts[0]+'.'+stepsToDurUpper(st)
-          :'('+arts.join(' ')+').'+stepsToDurUpper(st))+'{beam up}');
+        // オーナメントを取得（最初のイベントのornを使用）
+        var orn=getOrn(evs[0].track, m*barLen+si2);
+        var beat=(arts.length===1?arts[0]+'.'+stepsToDurUpper(st):'('+arts.join(' ')+').'+stepsToDurUpper(st));
+        var props='{beam up';
+        if(orn==='accent') props+=' ac';       // アクセント記号
+        if(orn==='ghost')  props+=' g';        // ゴーストノート
+        props+='}';
+        // フラム: 装飾音符を前に付ける
+        var prefix='';
+        if(orn==='flam'){
+          prefix=(arts.length===1?arts[0]+'.16{gr}':arts[0]+'.16{gr}')+' ';
+        }
+        // ドラッグ: 装飾音符2つ
+        if(orn==='drag'){
+          prefix=(arts.length===1?arts[0]+'.32{gr} '+arts[0]+'.32{gr} ':arts[0]+'.32{gr} '+arts[0]+'.32{gr} ');
+        }
+        // バズロール: トレモロ記号
+        if(orn==='buzz') props='{beam up tp 1}'; // tremolo picking
+        tokens.push(prefix+beat+props);
         si2+=st;
       } else {
         // 空白: まとめて休符
@@ -785,11 +802,15 @@ function buildAlphaTex(){
         st3=Math.max(1,Math.round(st3));
         var arts3=evs3.map(function(ev){return ART[ev.track]||'KickHit';})
                       .filter(function(a,i,arr){return arr.indexOf(a)===i;});
+        var orn3=getOrn(evs3[0].track, m3*barLen3+si4);
         var nextSi=si4+st3;
         var isBeatEnd=(nextSi%spbVal===0)&&(nextSi<barLen3);
-        var prop='{beam down'+(isBeatEnd?' beam split':'')+'}';
-        tokens3.push((arts3.length===1?arts3[0]+'.'+stepsToDurLower(st3)
-          :'('+arts3.join(' ')+').'+stepsToDurLower(st3))+prop);
+        var prop3='{beam down'+(isBeatEnd?' beam split':'');
+        if(orn3==='accent') prop3+=' ac';
+        prop3+='}';
+        var pre3='';
+        if(orn3==='flam') pre3=arts3[0]+'.'+stepsToDurLower(st3)+'{gr} ';
+        tokens3.push(pre3+(arts3.length===1?arts3[0]+'.'+stepsToDurLower(st3):'('+arts3.join(' ')+').'+stepsToDurLower(st3))+prop3);
         si4+=st3;
       } else {
         var beatPos=si4%spbVal;
@@ -1068,12 +1089,20 @@ var SYNTH_PRESETS = {
       playTone(t, 7000, 5000, 0.10, v*0.04, 'square', 2);
     },
     crash: function(t,v){
-      playNoise(t, 0.8, 6000, v*0.28, 22, 0.65);
-      playTone(t, 4500, 2800, 0.22, v*0.07, 'triangle', 12);
+      // クラッシュシンバル: 広帯域ノイズ+倍音
+      playNoise(t, 1.2, 8000, v*0.35, 18, 1.1);
+      playNoise(t, 0.8, 4000, v*0.20, 10, 0.7);
+      playTone(t, 3800, 2200, 0.3, v*0.08, 'sawtooth', 8);
+      playTone(t, 6200, 4000, 0.2, v*0.05, 'triangle', 5);
+    },
+    splash: function(t,v){
+      playNoise(t, 0.25, 9000, v*0.28, 8, 0.22);
+      playTone(t, 5500, 3500, 0.12, v*0.07, 'triangle', 4);
     },
     ride: function(t,v){
-      playNoise(t, 0.20, 7000, v*0.18, 5, 0.16);
-      playTone(t, 3600, 2800, 0.14, v*0.09, 'triangle', 3);
+      playNoise(t, 0.35, 6000, v*0.15, 4, 0.28);
+      playTone(t, 3200, 2600, 0.25, v*0.12, 'triangle', 2);
+      playTone(t, 6400, 5200, 0.15, v*0.06, 'triangle', 1);
     },
     cup: function(t,v){
       playNoise(t, 0.15, 8500, v*0.18, 2, 0.12);
