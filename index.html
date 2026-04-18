@@ -640,14 +640,12 @@ function buildAlphaTex(){
     tom16:'HighFloorTomhit'
   };
 
-  var UPPER={crash:1, open_hihat:1, closed_hihat:1, ride:1, cup:1,
-             snare:1, rimshot:1, tom10:1, tom12:1, tom16:1};
+  var UPPER={crash:1,open_hihat:1,closed_hihat:1,ride:1,cup:1,
+             snare:1,rimshot:1,tom10:1,tom12:1,tom16:1};
   var LOWER={kick:1};
 
-  function stepsToTex(steps){
-    if(steps>=4) return '4';
-    if(steps>=2) return '8';
-    return '16';
+  function stepsToDur(steps){
+    return steps>=4?'4':steps>=2?'8':'16';
   }
 
   var slots=[];
@@ -663,106 +661,69 @@ function buildAlphaTex(){
   lines.push(BS+'clef neutral');
   lines.push(BS+'articulation defaults');
 
-  // ── Voice 1: 上声部（ハイハット・スネア・タム）符幹上 ──
+  // ── Voice 1: 上声部（ハイハット・スネア・タム）──
   lines.push(BS+'voice');
   for(var m=0;m<ms;m++){
-    var barLen=4*spbVal, barTokens=[], si2=0;
+    var barLen=4*spbVal, tokens=[], si2=0;
     while(si2<barLen){
       var abs=m*barLen+si2;
       var evs=(slots[abs]||[]).filter(function(ev){return UPPER[ev.track];});
       if(evs.length>0){
         var dist=barLen-si2;
         for(var nj=si2+1;nj<barLen;nj++){
-          if((slots[m*barLen+nj]||[]).some(function(ev){return UPPER[ev.track];})){
-            dist=nj-si2; break;
-          }
+          if((slots[m*barLen+nj]||[]).some(function(ev){return UPPER[ev.track];})){dist=nj-si2;break;}
         }
-        var steps=dist>=4?4:dist>=2?2:1;
-        var dur=stepsToTex(steps);
+        var st=dist>=4?4:dist>=2?2:1;
         var arts=evs.map(function(ev){return ART[ev.track]||'SnareHit';})
                     .filter(function(a,i,arr){return arr.indexOf(a)===i;});
-        var beat=arts.length===1?arts[0]+'.'+dur:('('+arts.join(' ')+').'+dur);
-        barTokens.push(beat+'{beam up}');
-        si2+=steps;
+        var beat=arts.length===1?arts[0]+'.'+stepsToDur(st):'('+arts.join(' ')+').'+stepsToDur(st);
+        tokens.push(beat+'{beam up}');
+        si2+=st;
       } else {
         var gap=0;
-        while(si2+gap<barLen){
-          if((slots[m*barLen+si2+gap]||[]).some(function(ev){return UPPER[ev.track];})) break;
-          gap++;
-        }
+        while(si2+gap<barLen&&!(slots[m*barLen+si2+gap]||[]).some(function(ev){return UPPER[ev.track];})) gap++;
         var rem=gap;
-        while(rem>0){
-          var rs=rem>=4?4:rem>=2?2:1;
-          barTokens.push('r.'+stepsToTex(rs));
-          rem-=rs;
-        }
+        while(rem>0){var rs=rem>=4?4:rem>=2?2:1;tokens.push('r.'+stepsToDur(rs));rem-=rs;}
         si2+=gap;
       }
     }
-    lines.push(barTokens.join(' ')+' |');
+    lines.push(tokens.join(' ')+' |');
   }
 
-  // ── Voice 2: 下声部（キックのみ）符幹下 ──
-  // 拍（spbVal ステップ = 4分音符1拍分）をまたぐ連桁は禁止
-  // → 音符長を拍の境界でクリップし、境界をまたぐ場合は {beam split} を付ける
+  // ── Voice 2: 下声部（キックのみ）──
+  // 休符は r.16 のみ使い、小節内のキック位置に合わせて音符と休符を16分単位で並べる
+  // 休符には {dy n} を付けて記号を抑制し存在感を消す
   lines.push(BS+'voice');
   for(var m3=0;m3<ms;m3++){
-    var barLen3=4*spbVal, barTokens3=[], si4=0;
-    while(si4<barLen3){
+    var barLen3=4*spbVal, tokens3=[];
+    for(var si4=0;si4<barLen3;si4++){
       var abs3=m3*barLen3+si4;
       var evs3=(slots[abs3]||[]).filter(function(ev){return LOWER[ev.track];});
-
       if(evs3.length>0){
-        // 次のキックまでの距離
-        var dist3=barLen3-si4;
-        for(var nj3=si4+1;nj3<barLen3;nj3++){
-          if((slots[m3*barLen3+nj3]||[]).some(function(ev){return LOWER[ev.track];})){
-            dist3=nj3-si4; break;
-          }
-        }
-        var steps3=dist3>=4?4:dist3>=2?2:1;
-
-        // 拍の境界までの距離（現在の拍の残りステップ数）
-        var beatPos=si4%spbVal; // 拍内の位置
-        var tillNextBeat=spbVal-beatPos; // 次の拍境界まで
-
-        // 音符長を拍境界でクリップ
-        var clipped=Math.min(steps3, tillNextBeat);
-        var clipped2=clipped>=4?4:clipped>=2?2:1;
-        var dur3=stepsToTex(clipped2);
-
         var arts3=evs3.map(function(ev){return ART[ev.track]||'KickHit';})
                       .filter(function(a,i,arr){return arr.indexOf(a)===i;});
-        var beat3=arts3.length===1?arts3[0]+'.'+dur3:('('+arts3.join(' ')+').'+dur3);
-
-        // 拍の最後の音符（次が別の拍）なら beam split を付ける
-        var nextStep=si4+clipped2;
-        var crossesBeat=(nextStep%spbVal===0) && (nextStep<barLen3);
-        var prop=crossesBeat?'{beam down beam split}':'{beam down}';
-        barTokens3.push(beat3+prop);
-        si4+=clipped2;
-
+        // 拍境界をまたがないよう次拍までの残りでクリップ
+        var tillBeat=spbVal-(si4%spbVal);
+        var distK=barLen3-si4;
+        for(var njk=si4+1;njk<barLen3;njk++){
+          if((slots[m3*barLen3+njk]||[]).some(function(ev){return LOWER[ev.track];})){distK=njk-si4;break;}
+        }
+        var stK=Math.min(distK>=4?4:distK>=2?2:1, tillBeat>=4?4:tillBeat>=2?2:1);
+        stK=stK>=4?4:stK>=2?2:1;
+        var durK=stepsToDur(stK);
+        var beatK=arts3.length===1?arts3[0]+'.'+durK:'('+arts3.join(' ')+').'+durK;
+        // 拍末で連桁を切る
+        var nextSi=si4+stK;
+        var isBeatEnd=(nextSi%spbVal===0)&&(nextSi<barLen3);
+        tokens3.push(beatK+(isBeatEnd?'{beam down beam split}':'{beam down}'));
+        // 音符が占めたstK分だけsiを進める（ループのsi4++と合わせて-1）
+        si4+=stK-1;
       } else {
-        // 空スロット: 拍境界を超えないようにまとめる
-        var gap3=0;
-        while(si4+gap3<barLen3){
-          if((slots[m3*barLen3+si4+gap3]||[]).some(function(ev){return LOWER[ev.track];})) break;
-          gap3++;
-        }
-        var rem3=gap3;
-        while(rem3>0){
-          // 現在位置から次の拍境界まで
-          var pos3=(si4+(gap3-rem3))%spbVal;
-          var tillB=spbVal-pos3;
-          var rs3=Math.min(rem3,tillB);
-          var rs3c=rs3>=4?4:rs3>=2?2:1;
-          barTokens3.push('r.'+stepsToTex(rs3c)+'{beam down}');
-          rem3-=rs3c;
-        }
-        si4+=gap3;
+        // 休符: {dy n} で動的記号なし → 記号が小さくなり目立たない
+        tokens3.push('r.16{dy n}');
       }
     }
-    lines.push(barTokens3.join(' ')+' |');
+    lines.push(tokens3.join(' ')+' |');
   }
 
   var tex=lines.join('\n');
