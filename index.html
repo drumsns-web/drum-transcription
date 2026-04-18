@@ -640,11 +640,10 @@ function buildAlphaTex(){
     tom16:'HighFloorTomhit'
   };
 
-  var UPPER={crash:1, open_hihat:1, closed_hihat:1, ride:1, cup:1};
-  var LOWER={kick:1, snare:1, rimshot:1, tom10:1, tom12:1, tom16:1};
+  var UPPER={crash:1, open_hihat:1, closed_hihat:1, ride:1, cup:1,
+             snare:1, rimshot:1, tom10:1, tom12:1, tom16:1};
+  var LOWER={kick:1};
 
-  // steps → AlphaTex duration string
-  // 16分グリッド基準: 4steps=4分, 2steps=8分, 1step=16分
   function stepsToTex(steps){
     if(steps>=4) return '4';
     if(steps>=2) return '8';
@@ -664,72 +663,106 @@ function buildAlphaTex(){
   lines.push(BS+'clef neutral');
   lines.push(BS+'articulation defaults');
 
-  // ── Voice 1: 上声部（シンバル・ハイハット）──
-  // 全16分スロットを埋める（休符含む）、符尾上
+  // ── Voice 1: 上声部（ハイハット・スネア・タム）符幹上 ──
   lines.push(BS+'voice');
   for(var m=0;m<ms;m++){
-    var barLen=4*spbVal, barTokens=[];
-    for(var si2=0;si2<barLen;si2++){
+    var barLen=4*spbVal, barTokens=[], si2=0;
+    while(si2<barLen){
       var abs=m*barLen+si2;
       var evs=(slots[abs]||[]).filter(function(ev){return UPPER[ev.track];});
       if(evs.length>0){
-        var arts=evs.map(function(ev){return ART[ev.track]||'HiHatclosed';})
+        var dist=barLen-si2;
+        for(var nj=si2+1;nj<barLen;nj++){
+          if((slots[m*barLen+nj]||[]).some(function(ev){return UPPER[ev.track];})){
+            dist=nj-si2; break;
+          }
+        }
+        var steps=dist>=4?4:dist>=2?2:1;
+        var dur=stepsToTex(steps);
+        var arts=evs.map(function(ev){return ART[ev.track]||'SnareHit';})
                     .filter(function(a,i,arr){return arr.indexOf(a)===i;});
-        var beat=arts.length===1?arts[0]+'.16':('('+arts.join(' ')+').16');
+        var beat=arts.length===1?arts[0]+'.'+dur:('('+arts.join(' ')+').'+dur);
         barTokens.push(beat+'{beam up}');
+        si2+=steps;
       } else {
-        barTokens.push('r.16');
+        var gap=0;
+        while(si2+gap<barLen){
+          if((slots[m*barLen+si2+gap]||[]).some(function(ev){return UPPER[ev.track];})) break;
+          gap++;
+        }
+        var rem=gap;
+        while(rem>0){
+          var rs=rem>=4?4:rem>=2?2:1;
+          barTokens.push('r.'+stepsToTex(rs));
+          rem-=rs;
+        }
+        si2+=gap;
       }
     }
     lines.push(barTokens.join(' ')+' |');
   }
 
-  // ── Voice 2: 下声部（キック・スネア・タム）──
-  // ヒットがある位置だけ音符を置き、次のヒットまでの長さで音符を伸ばす
-  // 休符は最小限（小節の端で必要な場合のみ）
+  // ── Voice 2: 下声部（キックのみ）符幹下 ──
+  // 拍（spbVal ステップ = 4分音符1拍分）をまたぐ連桁は禁止
+  // → 音符長を拍の境界でクリップし、境界をまたぐ場合は {beam split} を付ける
   lines.push(BS+'voice');
-  for(var m2=0;m2<ms;m2++){
-    var barLen2=4*spbVal, barTokens2=[];
-    var si3=0;
-    while(si3<barLen2){
-      var abs2=m2*barLen2+si3;
-      var evs2=(slots[abs2]||[]).filter(function(ev){return LOWER[ev.track];});
+  for(var m3=0;m3<ms;m3++){
+    var barLen3=4*spbVal, barTokens3=[], si4=0;
+    while(si4<barLen3){
+      var abs3=m3*barLen3+si4;
+      var evs3=(slots[abs3]||[]).filter(function(ev){return LOWER[ev.track];});
 
-      if(evs2.length>0){
-        // 次のヒットまでの距離を計算
-        var dist=barLen2-si3;
-        for(var nj=si3+1;nj<barLen2;nj++){
-          var hasNext=(slots[m2*barLen2+nj]||[]).some(function(ev){return LOWER[ev.track];});
-          if(hasNext){dist=nj-si3;break;}
+      if(evs3.length>0){
+        // 次のキックまでの距離
+        var dist3=barLen3-si4;
+        for(var nj3=si4+1;nj3<barLen3;nj3++){
+          if((slots[m3*barLen3+nj3]||[]).some(function(ev){return LOWER[ev.track];})){
+            dist3=nj3-si4; break;
+          }
         }
-        var steps=dist>=4?4:dist>=2?2:1;
-        var dur=stepsToTex(steps);
+        var steps3=dist3>=4?4:dist3>=2?2:1;
 
-        var arts2=evs2.map(function(ev){return ART[ev.track]||'SnareHit';})
+        // 拍の境界までの距離（現在の拍の残りステップ数）
+        var beatPos=si4%spbVal; // 拍内の位置
+        var tillNextBeat=spbVal-beatPos; // 次の拍境界まで
+
+        // 音符長を拍境界でクリップ
+        var clipped=Math.min(steps3, tillNextBeat);
+        var clipped2=clipped>=4?4:clipped>=2?2:1;
+        var dur3=stepsToTex(clipped2);
+
+        var arts3=evs3.map(function(ev){return ART[ev.track]||'KickHit';})
                       .filter(function(a,i,arr){return arr.indexOf(a)===i;});
-        var beat2=arts2.length===1?arts2[0]+'.'+dur:('('+arts2.join(' ')+').'+dur);
-        barTokens2.push(beat2+'{beam down}');
-        si3+=steps;
+        var beat3=arts3.length===1?arts3[0]+'.'+dur3:('('+arts3.join(' ')+').'+dur3);
+
+        // 拍の最後の音符（次が別の拍）なら beam split を付ける
+        var nextStep=si4+clipped2;
+        var crossesBeat=(nextStep%spbVal===0) && (nextStep<barLen3);
+        var prop=crossesBeat?'{beam down beam split}':'{beam down}';
+        barTokens3.push(beat3+prop);
+        si4+=clipped2;
+
       } else {
-        // 空スロット: 次のヒットまたは小節末まで休符でまとめる
-        var gap=0;
-        while(si3+gap<barLen2){
-          var hasHit=(slots[m2*barLen2+si3+gap]||[]).some(function(ev){return LOWER[ev.track];});
-          if(hasHit) break;
-          gap++;
+        // 空スロット: 拍境界を超えないようにまとめる
+        var gap3=0;
+        while(si4+gap3<barLen3){
+          if((slots[m3*barLen3+si4+gap3]||[]).some(function(ev){return LOWER[ev.track];})) break;
+          gap3++;
         }
-        // gapを4/2/1に分解して休符を置く
-        var rem=gap;
-        while(rem>0){
-          var rSteps=rem>=4?4:rem>=2?2:1;
-          var rDur=stepsToTex(rSteps);
-          barTokens2.push('r.'+rDur+'{beam down}');
-          rem-=rSteps;
+        var rem3=gap3;
+        while(rem3>0){
+          // 現在位置から次の拍境界まで
+          var pos3=(si4+(gap3-rem3))%spbVal;
+          var tillB=spbVal-pos3;
+          var rs3=Math.min(rem3,tillB);
+          var rs3c=rs3>=4?4:rs3>=2?2:1;
+          barTokens3.push('r.'+stepsToTex(rs3c)+'{beam down}');
+          rem3-=rs3c;
         }
-        si3+=gap;
+        si4+=gap3;
       }
     }
-    lines.push(barTokens2.join(' ')+' |');
+    lines.push(barTokens3.join(' ')+' |');
   }
 
   var tex=lines.join('\n');
