@@ -122,6 +122,29 @@
     .panel-head p{margin:0; color:var(--text-sub); font-size:.9rem}
     .grid-scroll,.json-scroll{overflow:auto; padding:12px}
     .score-scroll{overflow:auto; padding:12px; background:#fff; border-radius:12px; margin:8px}
+    /* AlphaTab SVGのグレー音符を黒に強制 */
+    /* SVG要素に直接fill/stroke属性がある場合CSSで上書きできないためJSで対応 */
+    /* ただしCSSカスタムプロパティでフォールバック */
+    .score-scroll svg { color: #000; }
+    /* AlphaTabが使うグレー色を黒に上書き（属性セレクタ） */
+    .score-scroll svg [fill="#cdd8e1"],
+    .score-scroll svg [fill="#CDD8E1"],
+    .score-scroll svg [fill="#9ba4ac"],
+    .score-scroll svg [fill="#9BA4AC"],
+    .score-scroll svg [fill="#8B8B8B"],
+    .score-scroll svg [fill="#8b8b8b"],
+    .score-scroll svg [fill="#A0A0A0"],
+    .score-scroll svg [fill="#a0a0a0"],
+    .score-scroll svg [fill="#666666"],
+    .score-scroll svg [fill="#666"],
+    .score-scroll svg [fill="#999"],
+    .score-scroll svg [fill="#999999"] { fill: #000 !important; }
+    .score-scroll svg [stroke="#cdd8e1"],
+    .score-scroll svg [stroke="#CDD8E1"],
+    .score-scroll svg [stroke="#9ba4ac"],
+    .score-scroll svg [stroke="#9BA4AC"],
+    .score-scroll svg [stroke="#8B8B8B"],
+    .score-scroll svg [stroke="#8b8b8b"] { stroke: #000 !important; }
     .ruler,.row{
       display:grid;
       grid-template-columns:120px 1fr;
@@ -265,7 +288,7 @@
     <section class="panel">
       <div class="panel-head">
         <h2>ドラムグリッド</h2>
-        <p>リアルタイム譜面表示は維持 / TATATAN風のリズムモード・装飾音符対応</p>
+        <p></p>
       </div>
       <div class="grid-scroll">
         <div id="gridRoot"></div>
@@ -800,22 +823,26 @@ function renderScore(){
   var tex=buildAlphaTex();
 
   // SVG色修正関数（共通）
+  // 白・透明・黒・none 以外の全色を黒に変換
+  function isGray(c){
+    if(!c||c==='none'||c==='transparent') return false;
+    if(c==='#000'||c==='#000000'||c==='black') return false;
+    // 白系は除外
+    if(c.match(/^#[fF]{3}$|^#[fF]{6}$|^white$/i)) return false;
+    // それ以外（グレー含む）は全て黒に
+    return true;
+  }
   function fixScoreColors(container){
+    if(!container) return;
     var svgs=container.querySelectorAll('svg');
     svgs.forEach(function(svg){
       svg.querySelectorAll('*').forEach(function(el){
         var f=el.getAttribute('fill');
         var s=el.getAttribute('stroke');
-        var cls=el.getAttribute('class')||'';
-        if(f&&f!=='none'&&f!=='transparent'&&!f.match(/^#[fF]{3,6}$/)&&f!=='#000'&&f!=='#000000'){
-          el.setAttribute('fill','#000');
-        }
-        if(s&&s!=='none'&&s!=='transparent'&&!s.match(/^#[fF]{3,6}$/)&&s!=='#000'&&s!=='#000000'){
-          el.setAttribute('stroke','#000');
-        }
-        if(cls.toLowerCase().indexOf('rest')!==-1){
-          el.style.display='none';
-        }
+        var cls=(el.getAttribute('class')||'').toLowerCase();
+        if(isGray(f)) el.setAttribute('fill','#000');
+        if(isGray(s)) el.setAttribute('stroke','#000');
+        if(cls.indexOf('rest')!==-1) el.style.display='none';
       });
     });
   }
@@ -825,8 +852,9 @@ function renderScore(){
     try{
       _atApi.tex(tex,[0]);
       // tex()更新後も色修正が必要（renderFinishedが再発火するが念のため追加で実行）
-      setTimeout(function(){fixScoreColors(scoreDiv);},100);
-      setTimeout(function(){fixScoreColors(scoreDiv);},400);
+      [100,300,600,1000].forEach(function(d){
+        setTimeout(function(){fixScoreColors(scoreDiv);},d);
+      });
       return;
     }catch(e){_atApi=null;}
   }
@@ -843,10 +871,11 @@ function renderScore(){
     });
     _atDiv=scoreDiv;
 
-    // renderFinished: 描画完了のたびに色修正
+    // renderFinished: 描画完了のたびに色修正（複数タイミングで確実に）
     _atApi.renderFinished.on(function(){
-      setTimeout(function(){fixScoreColors(wrap);},50);
-      setTimeout(function(){fixScoreColors(wrap);},300);
+      [50,200,500,1000].forEach(function(d){
+        setTimeout(function(){fixScoreColors(wrap);},d);
+      });
     });
 
     _atApi.error.on(function(e){
