@@ -640,24 +640,12 @@ function buildAlphaTex(){
     tom16:'HighFloorTomhit'
   };
 
+  // 上声部楽器（符幹上）
   var UPPER={crash:1,open_hihat:1,closed_hihat:1,ride:1,cup:1,
              snare:1,rimshot:1,tom10:1,tom12:1,tom16:1};
+  // 下声部楽器（符幹下）
   var LOWER={kick:1};
 
-  // steps → AlphaTex duration
-  // 拍境界をまたがない最大単位で分解して返す [{dur, steps}, ...]
-  function decompose(steps, startInBeat, spbVal){
-    var result=[], rem=steps, pos=startInBeat;
-    while(rem>0){
-      var tillBeat=spbVal-pos;
-      var avail=Math.min(rem,tillBeat);
-      // 4/2/1 に丸める
-      var unit=avail>=4?4:avail>=2?2:1;
-      result.push(unit);
-      rem-=unit; pos=(pos+unit)%spbVal;
-    }
-    return result;
-  }
   function stepsToDur(s){return s>=4?'4':s>=2?'8':'16';}
 
   var slots=[];
@@ -667,13 +655,14 @@ function buildAlphaTex(){
   });
 
   var lines=[];
+  lines.push(BS+'hideDynamics');
   lines.push(BS+'track "Drums"');
   lines.push(BS+'instrument percussion');
   lines.push(BS+'tempo '+bpm);
   lines.push(BS+'clef neutral');
   lines.push(BS+'articulation defaults');
 
-  // ── Voice 1: 上声部 ──
+  // ── Voice 1: 上声部（ハイハット・スネア系）──
   lines.push(BS+'voice');
   for(var m=0;m<ms;m++){
     var barLen=4*spbVal, tokens=[], si2=0;
@@ -687,8 +676,7 @@ function buildAlphaTex(){
         var st=dist>=4?4:dist>=2?2:1;
         var arts=evs.map(function(ev){return ART[ev.track]||'SnareHit';})
                     .filter(function(a,i,arr){return arr.indexOf(a)===i;});
-        var beat=arts.length===1?arts[0]+'.'+stepsToDur(st):'('+arts.join(' ')+').'+stepsToDur(st);
-        tokens.push(beat+'{beam up}');
+        tokens.push((arts.length===1?arts[0]+'.'+stepsToDur(st):'('+arts.join(' ')+').'+stepsToDur(st))+'{beam up}');
         si2+=st;
       } else {
         var gap=0;
@@ -701,48 +689,39 @@ function buildAlphaTex(){
     lines.push(tokens.join(' ')+' |');
   }
 
-  // ── Voice 2: 下声部（キックのみ）休符なし ──
-  // キックの位置リストを作り、音符間の距離を音符長として割り当てる
-  // 拍をまたぐ場合はその拍内で切って beam split を付ける
+  // ── Voice 2: 下声部（キックのみ）──
+  // 全ステップを16分で並べる
+  // キックあり→ KickHit.16{beam down}（常に16分=黒符頭）
+  // キックなし→ 完全に省略し、音符だけで小節を構成
+  // AlphaTabは足りない拍数を自動補完するので、キック音符だけ並べればよい
+  // ただし小節の拍数計算のため、キック間を最小休符でつなぐ必要がある
+  // → キックを16分固定、キック間は{beam down}付き16分休符でつなぐ
+  //   ただし16分休符の記号を小さくするため拍内でまとめる
   lines.push(BS+'voice');
   for(var m3=0;m3<ms;m3++){
-    var barLen3=4*spbVal, tokens3=[];
-
-    // キックのステップ位置を収集
-    var kickSteps=[];
-    for(var ki=0;ki<barLen3;ki++){
-      if((slots[m3*barLen3+ki]||[]).some(function(ev){return LOWER[ev.track];})){
-        kickSteps.push(ki);
-      }
-    }
-
-    if(kickSteps.length===0){
-      // キックなし → 全休符(1個でOK)
-      tokens3.push('r.1');
-    } else {
-      var si4=0;
-      for(var ki2=0;ki2<kickSteps.length;ki2++){
-        var kStep=kickSteps[ki2];
-        // キックまでの前の空白は無視（音符で吸収 or 先頭の場合はキックから始める）
-        // キック音符の長さ = 次のキックまで（小節末まで）、拍境界でクリップ
-        var nextKick=ki2+1<kickSteps.length?kickSteps[ki2+1]:barLen3;
-        var distToNext=nextKick-kStep;
-        var beatPos=kStep%spbVal;
-        var tillBeat=spbVal-beatPos;
-
-        // 拍境界でクリップした音符長
-        var noteLen=Math.min(distToNext,tillBeat);
-        noteLen=noteLen>=4?4:noteLen>=2?2:1;
-
-        var evK=(slots[m3*barLen3+kStep]||[]).filter(function(ev){return LOWER[ev.track];});
-        var artK=evK.map(function(ev){return ART[ev.track]||'KickHit';})
-                    .filter(function(a,i,arr){return arr.indexOf(a)===i;});
-        var beatK=artK.length===1?artK[0]+'.'+stepsToDur(noteLen):'('+artK.join(' ')+').'+stepsToDur(noteLen);
-
-        // 拍末に達する場合 beam split
-        var afterNote=kStep+noteLen;
-        var isBeatEnd=(afterNote%spbVal===0)&&(afterNote<barLen3);
-        tokens3.push(beatK+(isBeatEnd?'{beam down beam split}':'{beam down}'));
+    var barLen3=4*spbVal, tokens3=[], si4=0;
+    while(si4<barLen3){
+      var evs3=(slots[m3*barLen3+si4]||[]).filter(function(ev){return LOWER[ev.track];});
+      if(evs3.length>0){
+        var arts3=evs3.map(function(ev){return ART[ev.track]||'KickHit';})
+                      .filter(function(a,i,arr){return arr.indexOf(a)===i;});
+        // 常に16分固定→黒符頭
+        tokens3.push((arts3.length===1?arts3[0]+'.16':'('+arts3.join(' ')+').16')+'{beam down}');
+        si4++;
+      } else {
+        // 空スロット: 拍内でまとめて休符1つ（記号を最小に）
+        // 現在位置から次のキックか次の拍境界まで
+        var beatPos3=si4%spbVal;
+        var tillBeat3=spbVal-beatPos3;
+        // 次のキックまで
+        var distK3=tillBeat3;
+        for(var nk=si4+1;nk<si4+tillBeat3&&nk<barLen3;nk++){
+          if((slots[m3*barLen3+nk]||[]).some(function(ev){return LOWER[ev.track];})){distK3=nk-si4;break;}
+        }
+        var rSteps=Math.min(distK3,tillBeat3);
+        rSteps=rSteps>=4?4:rSteps>=2?2:1;
+        tokens3.push('r.'+stepsToDur(rSteps)+'{beam down}');
+        si4+=rSteps;
       }
     }
     lines.push(tokens3.join(' ')+' |');
@@ -770,8 +749,17 @@ function renderScore(){
   scoreDiv.appendChild(wrap);
   try{
     _atApi=new alphaTab.AlphaTabApi(wrap,{
-      core:{engine:'svg',logLevel:3},
+      core:{engine:'svg',logLevel:0},
       display:{scale:1.0,barsPerRow:4},
+      notation:{
+        // Voice2の休符を非表示: RestBeat=8, RestHalf=9, RestWhole=10 等
+        // alphaTab.NotationElement で定義されているが番号で指定
+        elements:{
+          8:false,   // RestBeat (quarter/8th/16th rests)
+          9:false,   // RestHalf
+          10:false,  // RestWhole
+        }
+      },
       player:{enablePlayer:false}
     });
     _atDiv=scoreDiv;
