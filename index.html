@@ -799,30 +799,41 @@ function renderScore(){
   }
   var tex=buildAlphaTex();
 
+  // SVG色修正関数（共通）
+  function fixScoreColors(container){
+    var svgs=container.querySelectorAll('svg');
+    svgs.forEach(function(svg){
+      svg.querySelectorAll('*').forEach(function(el){
+        var f=el.getAttribute('fill');
+        var s=el.getAttribute('stroke');
+        var cls=el.getAttribute('class')||'';
+        if(f&&f!=='none'&&f!=='transparent'&&!f.match(/^#[fF]{3,6}$/)&&f!=='#000'&&f!=='#000000'){
+          el.setAttribute('fill','#000');
+        }
+        if(s&&s!=='none'&&s!=='transparent'&&!s.match(/^#[fF]{3,6}$/)&&s!=='#000'&&s!=='#000000'){
+          el.setAttribute('stroke','#000');
+        }
+        if(cls.toLowerCase().indexOf('rest')!==-1){
+          el.style.display='none';
+        }
+      });
+    });
+  }
+
+  // 既存インスタンスがあればtex()で更新 + 色修正
   if(_atApi&&_atDiv===scoreDiv){
     try{
       _atApi.tex(tex,[0]);
+      // tex()更新後も色修正が必要（renderFinishedが再発火するが念のため追加で実行）
+      setTimeout(function(){fixScoreColors(scoreDiv);},100);
+      setTimeout(function(){fixScoreColors(scoreDiv);},400);
       return;
     }catch(e){_atApi=null;}
   }
+
   scoreDiv.innerHTML='';
   var wrap=document.createElement('div');
   wrap.style.cssText='background:#fff;border-radius:8px;overflow:auto;min-height:80px;';
-  // AlphaTabのSVG内の休符クラスをCSSで非表示に
-  if(!document.getElementById('at-rest-hide-style')){
-    var st=document.createElement('style');
-    st.id='at-rest-hide-style';
-    // AlphaTabのSVGクラス: 休符は .at-rest、色が薄い要素は fill opacity で制御
-    st.textContent=[
-      // 休符の符頭・符線を非表示
-      '.at-surface svg .at-rest { display:none !important; }',
-      // SVG全体の薄いグレーを黒に強制
-      '.at-surface svg * { color:#000; }',
-      '.at-surface svg [fill="#CDD8E1"] { fill:#000 !important; }',
-      '.at-surface svg [fill="#9BA4AC"] { fill:#000 !important; }',
-    ].join('\n');
-    document.head.appendChild(st);
-  }
   scoreDiv.appendChild(wrap);
   try{
     _atApi=new alphaTab.AlphaTabApi(wrap,{
@@ -832,36 +843,10 @@ function renderScore(){
     });
     _atDiv=scoreDiv;
 
-    // 描画完了後にSVG全要素を黒に強制 + 休符を非表示
+    // renderFinished: 描画完了のたびに色修正
     _atApi.renderFinished.on(function(){
-      setTimeout(function(){
-        var svgs=wrap.querySelectorAll('svg');
-        // デバッグ: 実際のクラス名と色を確認
-        var colorSet=new Set(), classSet=new Set();
-        svgs.forEach(function(svg){
-          svg.querySelectorAll('*').forEach(function(el){
-            var f=el.getAttribute('fill');
-            var s=el.getAttribute('stroke');
-            var cls=el.getAttribute('class')||'';
-            if(f&&f!=='none') colorSet.add('fill:'+f);
-            if(s&&s!=='none') colorSet.add('stroke:'+s);
-            if(cls) cls.split(' ').forEach(function(c){if(c)classSet.add(c);});
-            // 黒・透明・白以外を黒に
-            if(f&&f!=='none'&&f!=='transparent'&&!f.match(/^#[fF]{3,6}$/)&&f!=='#000'&&f!=='#000000'){
-              el.setAttribute('fill','#000');
-            }
-            if(s&&s!=='none'&&s!=='transparent'&&!s.match(/^#[fF]{3,6}$/)&&s!=='#000'&&s!=='#000000'){
-              el.setAttribute('stroke','#000');
-            }
-            // 休符クラスを非表示
-            if(cls.toLowerCase().indexOf('rest')!==-1){
-              el.style.display='none';
-            }
-          });
-        });
-        console.log('[AT colors]', Array.from(colorSet).join(', '));
-        console.log('[AT classes]', Array.from(classSet).sort().join(', '));
-      }, 50);
+      setTimeout(function(){fixScoreColors(wrap);},50);
+      setTimeout(function(){fixScoreColors(wrap);},300);
     });
 
     _atApi.error.on(function(e){
