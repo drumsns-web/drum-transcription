@@ -882,17 +882,26 @@ function buildReverbMix(amount=0){
   conv.connect(wet).connect(ctx.destination);
   return conv;
 }
+// ノイズバッファをキャッシュ（毎回生成するとプツプツノイズが出るため）
+var _noiseBuffer = null;
+function getNoiseBuffer(ctx) {
+  if (!_noiseBuffer || _noiseBuffer.sampleRate !== ctx.sampleRate) {
+    // 2秒分のノイズバッファを事前生成
+    const len = ctx.sampleRate * 2;
+    _noiseBuffer = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = _noiseBuffer.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+  }
+  return _noiseBuffer;
+}
+
 function playNoise(time, dur, filterHz, vol, reverb=0, decay=-1){
   const ctx = state.audioContext;
   const actualDecay = decay < 0 ? dur : decay;
-  // 最低0.05秒のバッファを確保（32分音符等の短い音符でのノイズ防止）
-  const minDur = Math.max(dur, 0.05);
-  const bufferSize = Math.max(1, Math.floor(ctx.sampleRate * minDur));
-  const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  for(let i=0;i<bufferSize;i++) data[i] = Math.random()*2-1;
+  // キャッシュしたノイズバッファを使用（プツプツノイズ防止）
   const src = ctx.createBufferSource();
-  src.buffer = buffer;
+  src.buffer = getNoiseBuffer(ctx);
+  src.loop = true; // ループで長さを確保
   const filter = ctx.createBiquadFilter();
   filter.type = 'bandpass';
   filter.frequency.value = filterHz;
