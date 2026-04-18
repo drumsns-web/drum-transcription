@@ -623,14 +623,14 @@ function renderControls(){
     btn.classList.toggle('active', btn.dataset.mode === state.pattern.gridMode);
   });
 }
-// ── AlphaTab ─────────────────────────────────────────────────
+// アルファタブ (スコア表示)
 var _atApi=null, _atDiv=null;
 
 function buildAlphaTex(){
   var spbVal=spb(), ms=state.pattern.measures, bpm=state.pattern.bpm;
   var totalSt=ms*4*spbVal;
+  var BS='\u005c'; // U+005C REVERSE SOLIDUS = backslash, avoids YEN encoding
 
-  // Track → Articulation names per official docs
   var ART={
     kick:'KickHit', snare:'SnareHit',
     closed_hihat:'HiHatClosed', open_hihat:'HiHatOpen',
@@ -638,26 +638,18 @@ function buildAlphaTex(){
     rimshot:'SideStick', tom10:'HighTom', tom12:'HiMidTom', tom16:'HiFloorTom'
   };
 
-  // slots[step] = [event, ...]
   var slots=[];
   for(var si=0;si<totalSt;si++) slots.push([]);
   state.pattern.events.forEach(function(ev){
     if(ev.step>=0&&ev.step<totalSt) slots[ev.step].push(ev);
   });
 
-  // Build AlphaTex per official format:
-  // Score metadata first, then track+instrument+articulation, then bars
-  // Using :16 duration prefix so all beats are 16th-note slots
   var lines=[];
-
-  // Score-level metadata (before track)
-  lines.push('\\tempo ' + bpm);
-  // Track + instrument metadata  
-  lines.push('\\track "Drums"');
-  lines.push('\\instrument percussion');
-  lines.push('\\clef neutral');
-  lines.push('\\articulation defaults');
-  // All notes are 16th note slots
+  lines.push(BS+'tempo '+bpm);
+  lines.push(BS+'track "Drums"');
+  lines.push(BS+'instrument percussion');
+  lines.push(BS+'clef neutral');
+  lines.push(BS+'articulation defaults');
   lines.push(':16');
 
   for(var m=0;m<ms;m++){
@@ -678,11 +670,11 @@ function buildAlphaTex(){
         barTokens.push('r');
       }
     }
-    lines.push(barTokens.join(' ') + ' |');
+    lines.push(barTokens.join(' ')+' |');
   }
 
-  var tex = lines.join('\n');
-  console.log('[AlphaTex first 200]', tex.slice(0,200));
+  var tex=lines.join('\n');
+  console.log('[AlphaTex]', tex.slice(0,150));
   return tex;
 }
 
