@@ -822,39 +822,44 @@ function renderScore(){
   }
   var tex=buildAlphaTex();
 
-  // SVG色修正関数（共通）
-  // 白・透明・黒・none 以外の全色を黒に変換
-  function isGray(c){
-    if(!c||c==='none'||c==='transparent') return false;
-    if(c==='#000'||c==='#000000'||c==='black') return false;
-    // 白系は除外
-    if(c.match(/^#[fF]{3}$|^#[fF]{6}$|^white$/i)) return false;
-    // それ以外（グレー含む）は全て黒に
-    return true;
+  // MutationObserverでSVGの変化を監視して即座に色修正
+  function startColorObserver(container){
+    // 既存のObserverを停止
+    if(container._colorObserver){
+      container._colorObserver.disconnect();
+    }
+    var observer=new MutationObserver(function(){
+      fixScoreColors(container);
+    });
+    observer.observe(container,{childList:true,subtree:true,attributes:true,attributeFilter:['fill','stroke']});
+    container._colorObserver=observer;
+    // 初回も即実行
+    fixScoreColors(container);
   }
+
+  // 白・黒・none以外を全て黒に変換
   function fixScoreColors(container){
     if(!container) return;
-    var svgs=container.querySelectorAll('svg');
-    svgs.forEach(function(svg){
-      svg.querySelectorAll('*').forEach(function(el){
-        var f=el.getAttribute('fill');
-        var s=el.getAttribute('stroke');
-        var cls=(el.getAttribute('class')||'').toLowerCase();
-        if(isGray(f)) el.setAttribute('fill','#000');
-        if(isGray(s)) el.setAttribute('stroke','#000');
-        if(cls.indexOf('rest')!==-1) el.style.display='none';
-      });
+    container.querySelectorAll('svg *').forEach(function(el){
+      var f=el.getAttribute('fill');
+      var s=el.getAttribute('stroke');
+      var cls=(el.getAttribute('class')||'').toLowerCase();
+      if(f&&f!=='none'&&f!=='transparent'&&f!=='#000'&&f!=='#000000'
+         &&!f.match(/^#[fF]{3}$/)&&!f.match(/^#[fF]{6}$/)){
+        el.setAttribute('fill','#000');
+      }
+      if(s&&s!=='none'&&s!=='transparent'&&s!=='#000'&&s!=='#000000'
+         &&!s.match(/^#[fF]{3}$/)&&!s.match(/^#[fF]{6}$/)){
+        el.setAttribute('stroke','#000');
+      }
+      if(cls.indexOf('rest')!==-1) el.style.display='none';
     });
   }
 
-  // 既存インスタンスがあればtex()で更新 + 色修正
+  // 既存インスタンスがあればtex()で更新
   if(_atApi&&_atDiv===scoreDiv){
     try{
       _atApi.tex(tex,[0]);
-      // tex()更新後も色修正が必要（renderFinishedが再発火するが念のため追加で実行）
-      [100,300,600,1000].forEach(function(d){
-        setTimeout(function(){fixScoreColors(scoreDiv);},d);
-      });
       return;
     }catch(e){_atApi=null;}
   }
@@ -863,6 +868,7 @@ function renderScore(){
   var wrap=document.createElement('div');
   wrap.style.cssText='background:#fff;border-radius:8px;overflow:auto;min-height:80px;';
   scoreDiv.appendChild(wrap);
+
   try{
     _atApi=new alphaTab.AlphaTabApi(wrap,{
       core:{engine:'svg',logLevel:0},
@@ -871,16 +877,15 @@ function renderScore(){
     });
     _atDiv=scoreDiv;
 
-    // renderFinished: 描画完了のたびに色修正（複数タイミングで確実に）
     _atApi.renderFinished.on(function(){
-      [50,200,500,1000].forEach(function(d){
-        setTimeout(function(){fixScoreColors(wrap);},d);
-      });
+      // renderFinished後にMutationObserverを開始
+      // Observerが変化を検知して即座に色修正する
+      startColorObserver(wrap);
     });
 
     _atApi.error.on(function(e){
       console.error('[AlphaTab error]',e);
-      scoreDiv.innerHTML='<div style="color:#e05555;padding:8px;font-size:.82rem">譜面エラー: '+(e.message||JSON.stringify(e))+'</div>';
+      scoreDiv.innerHTML='<div style="color:#e05555;padding:8px">譜面エラー: '+(e.message||JSON.stringify(e))+'</div>';
       _atApi=null;
     });
     _atApi.tex(tex,[0]);
