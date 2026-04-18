@@ -1285,63 +1285,96 @@ function playTrackAt(trackId, time, velocityScale=1){
   const tr = TRACKS.find(t=>t.id===trackId);
   if(!tr) return;
   const fx = _FX[trackId]||{};
-  const volScale = (fx.volume !== undefined ? fx.volume/100 : 1.0);
+  const volScale = fx.volume !== undefined ? fx.volume/100 : 1.0;
   const v = Math.max(0.05, Math.min(1.5, velocityScale * volScale));
   const preset = getPresetForTrack(trackId);
   const fn = preset[trackId];
   if(fn){ fn(time, v); }
   else { playNoise(time, 0.05, 1000, v*0.2, 0, 0.04); }
-  // パート別エフェクト（シンセ音源用）
-  applyTrackFX(trackId, time);
+  // シンセ音源にもエフェクトをかける（遅延後にFXノードを後付け）
+  _applyFXPost(trackId, time);
 }
 
-// ディレイ・ゲートリバーブ用の共通エフェクトノード生成
-function applyTrackFX(trackId, time){
-  // ディレイとゲートリバーブはsamplerで別途接続
-}
-
-// エフェクトチェーンを作ってGainNodeを返す（sample再生用）
-function buildFXChain(trackId, baseGain){
+// シンセ音源用: 発音直後にエフェクトを独立ノードで追加
+function _applyFXPost(trackId, time){
   const ctx = state.audioContext;
+  if(!ctx) return;
   const fx = _FX[trackId]||{};
-  const volScale = (fx.volume !== undefined ? fx.volume/100 : 1.0);
-
-  const gainNode = ctx.createGain();
-  gainNode.gain.value = Math.min(1.5, baseGain * volScale);
-
-  var lastNode = gainNode;
 
   // ディレイ
   if(fx.delay > 0){
-    const dly = ctx.createDelay(1.0);
+    const wetGain = ctx.createGain();
+    wetGain.gain.value = fx.delay / 100 * 0.5;
+    // ディレイ付きノイズを発音（既存の音に加算）
     const dlyTime = fx.delayTime || 0.25;
-    dly.delayTime.value = dlyTime;
+    // シンセのディレイは既存ノードをタップできないため
+    // ディレイ付き追加音源として別途鳴らす（簡易実装）
+    const nsrc = ctx.createBufferSource();
+    nsrc.buffer = getNoiseBuffer(ctx);
+    nsrc.loop = true;
     const dlyGain = ctx.createGain();
-    dlyGain.gain.value = fx.delay / 100 * 0.7;
-    const dlyFb = ctx.createGain();
-    dlyFb.gain.value = 0.35;
-    gainNode.connect(dly);
-    dly.connect(dlyGain);
-    dlyGain.connect(ctx.destination);
-    dly.connect(dlyFb);
-    dlyFb.connect(dly);
+    dlyGain.gain.setValueAtTime(0.0001, time + dlyTime);
+    dlyGain.gain.linearRampToValueAtTime(fx.delay/100*0.15, time + dlyTime + 0.003);
+    dlyGain.gain.exponentialRampToValueAtTime(0.0001, time + dlyTime + 0.25);
+    nsrc.connect(dlyGain).connect(ctx.destination);
+    nsrc.start(time + dlyTime);
+    nsrc.stop(time + dlyTime + 0.3);
   }
 
-  // ゲートリバーブ（短いIR）
-  if(fx.gateReverb > 0){
-    const grLen = Math.floor(ctx.sampleRate * 0.15); // 150ms でゲート
+  // ゲートリバーブ（短い残響）
+  if(fx.gateReverb > 0 && !_grCache[ctx]){
+    const grLen = Math.floor(ctx.sampleRate * 0.15);
     const grBuf = ctx.createBuffer(2, grLen, ctx.sampleRate);
     for(let ch=0;ch<2;ch++){
       const d=grBuf.getChannelData(ch);
       for(let i=0;i<grLen;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/grLen,1.5);
     }
+    _grCache[ctx] = grBuf;
+  }
+}
+
+var _grCache = {};
+
+// サンプル音源用エフェクトチェーン（GainNodeを返す）
+function buildFXChain(trackId, baseGain){
+  const ctx = state.audioContext;
+  const fx = _FX[trackId]||{};
+  const volScale = fx.volume !== undefined ? fx.volume/100 : 1.0;
+
+  const gainNode = ctx.createGain();
+  gainNode.gain.value = Math.min(1.5, baseGain * volScale);
+
+  // ディレイ
+  if(fx.delay > 0){
+    const dlyTime = fx.delayTime || 0.25;
+    const dly = ctx.createDelay(1.0);
+    dly.delayTime.value = dlyTime;
+    const dlyGain = ctx.createGain();
+    dlyGain.gain.value = fx.delay / 100 * 0.6;
+    const dlyFb = ctx.createGain();
+    dlyFb.gain.value = 0.3;
+    gainNode.connect(dly);
+    dly.connect(dlyGain).connect(ctx.destination);
+    dly.connect(dlyFb).connect(dly);
+  }
+
+  // ゲートリバーブ
+  if(fx.gateReverb > 0){
+    const grBuf = _grCache[ctx] || (()=>{
+      const len = Math.floor(ctx.sampleRate * 0.15);
+      const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+      for(let ch=0;ch<2;ch++){
+        const d=buf.getChannelData(ch);
+        for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,1.5);
+      }
+      _grCache[ctx]=buf;
+      return buf;
+    })();
     const grConv = ctx.createConvolver();
     grConv.buffer = grBuf;
     const grGain = ctx.createGain();
-    grGain.gain.value = fx.gateReverb / 100 * 0.6;
-    gainNode.connect(grConv);
-    grConv.connect(grGain);
-    grGain.connect(ctx.destination);
+    grGain.gain.value = fx.gateReverb / 100 * 0.7;
+    gainNode.connect(grConv).connect(grGain).connect(ctx.destination);
   }
 
   // 通常リバーブ
@@ -1353,6 +1386,8 @@ function buildFXChain(trackId, baseGain){
   gainNode.connect(ctx.destination);
   return gainNode;
 }
+
+
 function fireWithOrn(trackId, step, time, baseVel){
   // カスタムサンプルがあれば優先再生
   var _s=_S&&_S[trackId];
@@ -1692,8 +1727,8 @@ function openSampler(){
   gSel+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
   presetIds.forEach(function(pid){
     var active=(_globalPreset===pid&&Object.keys(_trackPreset).length===0);
-    var gpid=JSON.stringify(pid);
-    gSel+='<button onclick="setGlobalPreset('+gpid+')" style="'+bs+
+    // シングルクォートでJS引数を囲む（HTMLのダブルクォートと衝突しない）
+    gSel+='<button onclick=\'setGlobalPreset("'+pid+'")\' style="'+bs+
       (active?';background:#4a3a00;border-color:#ffe66d;color:#ffe66d':'')+
       '">'+SYNTH_PRESETS[pid].label+'</button>';
   });
@@ -1701,7 +1736,6 @@ function openSampler(){
   gRow.innerHTML=gSel;
   body.appendChild(gRow);
 
-  // パートごとの設定
   var hdr=document.createElement('div');
   hdr.style.cssText='font-size:.78rem;color:#9090b8;padding:4px 2px 6px;letter-spacing:.06em';
   hdr.textContent='パート別設定（個別に上書き可能）';
@@ -1710,81 +1744,87 @@ function openSampler(){
   TRACKS.forEach(function(tr){
     var s=_S[tr.id];
     var curP=_trackPreset[tr.id]||null;
+    var fx=_FX[tr.id]||{};
     var row=document.createElement('div');
     row.style.cssText='padding:8px 10px;background:#1a1a30;border-radius:10px;margin-bottom:4px';
-    var tid=JSON.stringify(tr.id);
+    // シングルクォートで囲んでHTMLクォートの衝突を回避
+    var q="'";
+    var tid=tr.id; // 生のID文字列を使う
 
-    // パート名 + プリセット選択
     var inner='<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">';
     inner+='<span style="font-weight:700;font-size:.88rem;color:'+tr.accent+';min-width:80px">'+tr.label+'</span>';
     inner+='<div style="display:flex;gap:4px;flex-wrap:wrap">';
-    // 「グローバルに従う」ボタン
-    inner+='<button onclick="clearTrackPreset('+tid+')" style="'+bs+
+    inner+='<button onclick=\'clearTrackPreset("'+tid+"\")'"+' style="'+bs+
       (!curP?';background:#1a3a00;border-color:#a8ff78;color:#a8ff78':'')+
       '">全体に従う</button>';
     presetIds.forEach(function(pid){
       var active=(curP===pid);
-      var ppid=JSON.stringify(pid);
-      inner+='<button onclick="setTrackPreset('+tid+','+ppid+')" style="'+bs+
+      inner+='<button onclick=\'setTrackPreset("'+tid+'","'+pid+"\")'"+' style="'+bs+
         (active?';background:#4a3a00;border-color:#ffe66d;color:#ffe66d':'')+
         '">'+SYNTH_PRESETS[pid].label+'</button>';
     });
     inner+='</div></div>';
 
-    // ファイル/録音ボタン
+    // ファイル/録音
     inner+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">';
-    inner+='<span id="src_'+tr.id+'" style="font-size:.75rem;color:#9090b8;flex:1">'+(s?'&#128193; '+s.name:'シンセ音源')+'</span>';
-    inner+='<button style="'+bs+'" onclick="loadSF('+tid+')">&#128193; 読込</button>';
-    inner+='<button id="rec_'+tr.id+'" style="'+bs+'" onclick="togRec('+tid+')">&#127897; 録音</button>';
-    if(s){inner+='<button style="'+bs+'" onclick="clearSample('+tid+')">&#10005;</button>';}
+    inner+='<span id="src_'+tid+'" style="font-size:.75rem;color:#9090b8;flex:1">'+(s?'&#128193; '+s.name:'シンセ音源')+'</span>';
+    inner+='<button style="'+bs+'" onclick=\'loadSF("'+tid+"\")'"+'>&#128193; 読込</button>';
+    inner+='<button id="rec_'+tid+'" style="'+bs+'" onclick=\'togRec("'+tid+"\")'"+'>&#127897; 録音</button>';
+    if(s){ inner+='<button style="'+bs+'" onclick=\'clearSample("'+tid+"\")'"+'>&#10005;</button>'; }
     inner+='</div>';
 
     // エフェクト
-    var fx=_FX[tr.id]||{};
-    var sliderStyle='width:90px;accent-color:#a8ff78;vertical-align:middle';
-    var labelStyle='font-size:.72rem;color:#9090b8;min-width:72px';
+    var sl='width:90px;accent-color:#a8ff78;vertical-align:middle';
+    var lb='font-size:.72rem;color:#9090b8;min-width:60px';
     inner+='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 0;border-top:1px solid rgba(160,160,255,0.1)">';
-    // ボリューム
-    inner+='<div style="display:flex;align-items:center;gap:4px">';
-    inner+='<span style="'+labelStyle+'">VOL</span>';
-    inner+='<input type="range" min="0" max="200" value="'+(fx.volume!==undefined?fx.volume:100)+'" style="'+sliderStyle+'" oninput="setFX('+tid+',\'volume\',+this.value);this.nextElementSibling.textContent=this.value+\'%\'">';
-    inner+='<span style="font-size:.7rem;color:#ffe66d;min-width:34px">'+(fx.volume!==undefined?fx.volume:100)+'%</span>';
-    inner+='</div>';
-    // リバーブ
-    inner+='<div style="display:flex;align-items:center;gap:4px">';
-    inner+='<span style="'+labelStyle+'">REVERB</span>';
-    inner+='<input type="range" min="0" max="100" value="'+(fx.reverb||0)+'" style="'+sliderStyle+'" oninput="setFX('+tid+',\'reverb\',+this.value);this.nextElementSibling.textContent=this.value">';
+
+    // VOL
+    var vol=fx.volume!==undefined?fx.volume:100;
+    inner+='<label style="display:flex;align-items:center;gap:4px">';
+    inner+='<span style="'+lb+'">VOL</span>';
+    inner+='<input type="range" min="0" max="200" value="'+vol+'" style="'+sl+'" oninput=\'setFX("'+tid+'","volume",+this.value);this.nextElementSibling.textContent=this.value+"%"\'>';
+    inner+='<span style="font-size:.7rem;color:#ffe66d;min-width:36px">'+vol+'%</span>';
+    inner+='</label>';
+
+    // REVERB
+    inner+='<label style="display:flex;align-items:center;gap:4px">';
+    inner+='<span style="'+lb+'">REVERB</span>';
+    inner+='<input type="range" min="0" max="100" value="'+(fx.reverb||0)+'" style="'+sl+'" oninput=\'setFX("'+tid+'","reverb",+this.value);this.nextElementSibling.textContent=this.value\'>';
     inner+='<span style="font-size:.7rem;color:#ffe66d;min-width:24px">'+(fx.reverb||0)+'</span>';
-    inner+='</div>';
-    // ディレイ
-    inner+='<div style="display:flex;align-items:center;gap:4px">';
-    inner+='<span style="'+labelStyle+'">DELAY</span>';
-    inner+='<input type="range" min="0" max="100" value="'+(fx.delay||0)+'" style="'+sliderStyle+'" oninput="setFX('+tid+',\'delay\',+this.value);this.nextElementSibling.textContent=this.value">';
+    inner+='</label>';
+
+    // DELAY
+    inner+='<label style="display:flex;align-items:center;gap:4px">';
+    inner+='<span style="'+lb+'">DELAY</span>';
+    inner+='<input type="range" min="0" max="100" value="'+(fx.delay||0)+'" style="'+sl+'" oninput=\'setFX("'+tid+'","delay",+this.value);this.nextElementSibling.textContent=this.value\'>';
     inner+='<span style="font-size:.7rem;color:#ffe66d;min-width:24px">'+(fx.delay||0)+'</span>';
-    inner+='</div>';
-    // ディレイタイム
-    inner+='<div style="display:flex;align-items:center;gap:4px">';
-    inner+='<span style="'+labelStyle+'">DLY TIME</span>';
+    inner+='</label>';
+
+    // DLY TIME
     var dlyT=fx.delayTime||0.25;
-    inner+='<select style="background:#1e1e3a;color:#fff;border:1px solid rgba(160,160,255,0.3);border-radius:4px;padding:2px 4px;font-size:.72rem" onchange="setFX('+tid+',\'delayTime\',+this.value)">';
-    [{v:0.125,l:'1/8'},{v:0.1875,l:'1/8.'},{v:0.25,l:'1/4'},{v:0.375,l:'1/4.'},{v:0.5,l:'1/2'}].forEach(function(opt){
-      inner+='<option value="'+opt.v+'"'+(Math.abs(dlyT-opt.v)<0.01?' selected':'')+'>'+opt.l+'</option>';
+    inner+='<label style="display:flex;align-items:center;gap:4px">';
+    inner+='<span style="'+lb+'">DLY TIME</span>';
+    inner+='<select style="background:#1e1e3a;color:#fff;border:1px solid rgba(160,160,255,0.3);border-radius:4px;padding:2px 4px;font-size:.72rem" onchange=\'setFX("'+tid+'","delayTime",+this.value)\'>';
+    [{v:0.125,l:'1/8'},{v:0.1875,l:'1/8.'},{v:0.25,l:'1/4'},{v:0.375,l:'1/4.'},{v:0.5,l:'1/2'}].forEach(function(o){
+      inner+='<option value="'+o.v+'"'+(Math.abs(dlyT-o.v)<0.01?' selected':'')+'>'+o.l+'</option>';
     });
     inner+='</select>';
-    inner+='</div>';
-    // ゲートリバーブ
-    inner+='<div style="display:flex;align-items:center;gap:4px">';
-    inner+='<span style="'+labelStyle+'">GATE REV</span>';
-    inner+='<input type="range" min="0" max="100" value="'+(fx.gateReverb||0)+'" style="'+sliderStyle+'" oninput="setFX('+tid+',\'gateReverb\',+this.value);this.nextElementSibling.textContent=this.value">';
-    inner+='<span style="font-size:.7rem;color:#ffe66d;min-width:24px">'+(fx.gateReverb||0)+'</span>';
-    inner+='</div>';
-    inner+='</div>';
+    inner+='</label>';
 
+    // GATE REV
+    inner+='<label style="display:flex;align-items:center;gap:4px">';
+    inner+='<span style="'+lb+'">GATE REV</span>';
+    inner+='<input type="range" min="0" max="100" value="'+(fx.gateReverb||0)+'" style="'+sl+'" oninput=\'setFX("'+tid+'","gateReverb",+this.value);this.nextElementSibling.textContent=this.value\'>';
+    inner+='<span style="font-size:.7rem;color:#ffe66d;min-width:24px">'+(fx.gateReverb||0)+'</span>';
+    inner+='</label>';
+
+    inner+='</div>';
     row.innerHTML=inner;
     body.appendChild(row);
   });
   document.getElementById('samplerModal').style.display='flex';
 }
+
 
 function setGlobalPreset(pid){
   _globalPreset=pid;
