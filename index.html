@@ -628,8 +628,8 @@ function renderControls(){
   });
 }
 // ── AlphaTab インスタンス管理 ──────────────────────────────
-var _atApi = null;   // alphaTab.AlphaTabApi インスタンス
-var _atDiv = null;   // マウント先div
+var _atApi = null;
+var _atDiv = null;
 
 // state.pattern.events → AlphaTex 文字列に変換
 function buildAlphaTex() {
@@ -638,139 +638,131 @@ function buildAlphaTex() {
   var totalSt = ms * 4 * spbVal;
   var bpm     = state.pattern.bpm;
 
-  // MIDI note → articulation名（General MIDI percussion map）
-  var MIDI_ART = {
-    36: 'KickHit',
-    38: 'SnareHit',       42: 'HiHatClosed',
-    46: 'HiHatOpen',      49: 'CrashCymbal1',
-    51: 'RideCymbal1',    43: 'HiFloorTom',
-    47: 'LowMidTom',      48: 'HiMidTom',
-    50: 'HighTom',        37: 'SideStick',
-    53: 'RideBell',
+  var TRACK_ART = {
+    kick:         'KickHit',
+    snare:        'SnareHit',
+    closed_hihat: 'HiHatClosed',
+    open_hihat:   'HiHatOpen',
+    crash:        'CrashCymbal1',
+    ride:         'RideCymbal1',
+    cup:          'RideBell',
+    rimshot:      'SideStick',
+    tom10:        'HighTom',
+    tom12:        'HiMidTom',
+    tom16:        'HiFloorTom',
   };
 
-  // track id → MIDI note
-  var TRACK_MIDI = {
-    kick: 36, snare: 38, closed_hihat: 42, open_hihat: 46,
-    crash: 49, ride: 51, cup: 53, rimshot: 37,
-    tom10: 50, tom12: 48, tom16: 43,
-  };
-
-  // 16分ステップ単位の音符長（AlphaTex表記）
-  var DUR_MAP = { 4:'4', 2:'8', 1:'16' };
-
-  // 各ステップのイベント配列を作る
   var slots = [];
   for (var si = 0; si < totalSt; si++) slots.push([]);
   state.pattern.events.forEach(function(ev) {
-    if (ev.step < totalSt) slots[ev.step].push(ev);
+    if (ev.step >= 0 && ev.step < totalSt) slots[ev.step].push(ev);
   });
 
-  // AlphaTex ヘッダー
-  var tex = '\\track "Drums" \\instrument percussion \\tempo ' + bpm +
-            ' \\clef neutral \\articulation defaults\n';
+  var lines = [
+    '\\track "Drums" \\instrument percussion \\tempo ' + bpm + ' \\clef neutral \\articulation defaults'
+  ];
 
-  // 小節ループ
   for (var m = 0; m < ms; m++) {
-    var barTokens = [];
+    var barLen = 4 * spbVal;
+    var tokens = [];
     var si2 = 0;
-    var barLen = 4 * spbVal; // この小節のステップ数
 
     while (si2 < barLen) {
-      var abs = m * barLen + si2;
-      var evs = slots[abs] || [];
+      var abs  = m * barLen + si2;
+      var evs  = slots[abs] || [];
 
-      // 次のヒットまでの距離（音符長を決定）
       var dist = barLen - si2;
       for (var nj = si2 + 1; nj < barLen; nj++) {
-        if (slots[m * barLen + nj] && slots[m * barLen + nj].length > 0) {
-          dist = nj - si2; break;
-        }
+        if ((slots[m * barLen + nj] || []).length > 0) { dist = nj - si2; break; }
       }
-      // 使える最大の音符長（16分単位の倍数 4,2,1）
-      var steps = dist >= 4 ? 4 : dist >= 2 ? 2 : 1;
-      var durTex = DUR_MAP[steps] || '16';
+      var steps  = dist >= 4 ? 4 : dist >= 2 ? 2 : 1;
+      var durStr = steps === 4 ? '4' : steps === 2 ? '8' : '16';
 
       if (evs.length > 0) {
         var arts = evs.map(function(ev) {
-          var midi = TRACK_MIDI[ev.track];
-          return MIDI_ART[midi] || 'SnareHit';
-        });
-        // 複数同時: (Art1 Art2).dur
-        if (arts.length === 1) {
-          barTokens.push(arts[0] + '.' + durTex);
-        } else {
-          barTokens.push('(' + arts.join(' ') + ').' + durTex);
-        }
+          return TRACK_ART[ev.track] || 'SnareHit';
+        }).filter(function(a, i, arr) { return arr.indexOf(a) === i; });
+
+        var orn = getOrn(evs[0].track, abs);
+        var suffix = orn === 'accent' ? '{ac}' : orn === 'ghost' ? '{g}' : '';
+
+        tokens.push(arts.length === 1
+          ? arts[0] + '.' + durStr + suffix
+          : '(' + arts.join(' ') + ').' + durStr + suffix);
       } else {
-        barTokens.push('r.' + durTex);
+        tokens.push('r.' + durStr);
       }
       si2 += steps;
     }
-    tex += barTokens.join(' ') + ' |\n';
+    lines.push(tokens.join(' ') + ' |');
   }
-  return tex;
+  return lines.join('\n');
 }
 
 function renderScore() {
   var scoreDiv = document.getElementById('scoreDiv');
   if (!scoreDiv) return;
 
-  // AlphaTab が未ロードなら待つ
   if (typeof alphaTab === 'undefined') {
-    scoreDiv.innerHTML = '<div style="color:#9090b8;padding:12px;font-size:.85rem">AlphaTab を読み込み中...</div>';
-    setTimeout(renderScore, 500);
+    scoreDiv.innerHTML = '<div style="color:#9090b8;padding:12px;font-size:.85rem">AlphaTab 読み込み中...</div>';
+    setTimeout(renderScore, 600);
     return;
   }
 
   var tex = buildAlphaTex();
 
   if (_atApi && _atDiv === scoreDiv) {
-    // 既存インスタンスを更新
-    try { _atApi.tex(tex); return; } catch(e) { _atApi = null; }
+    try { _atApi.tex(tex, [0]); return; } catch(e) { _atApi = null; }
   }
 
-  // 新規マウント
   scoreDiv.innerHTML = '';
   var wrapper = document.createElement('div');
-  wrapper.style.cssText = 'background:#fff;border-radius:8px;overflow:hidden;min-height:100px;';
+  wrapper.style.cssText = 'background:#fff;border-radius:8px;overflow:auto;';
   scoreDiv.appendChild(wrapper);
 
   try {
     _atApi = new alphaTab.AlphaTabApi(wrapper, {
-      core: {
-        engine: 'svg',
-        logLevel: 0,
-      },
-      display: {
-        layoutMode: alphaTab.LayoutMode ? alphaTab.LayoutMode.Page : 0,
-        scale: 0.9,
-        barsPerRow: state.pattern.measures <= 2 ? state.pattern.measures : 4,
-        staveProfile: alphaTab.StaveProfile ? alphaTab.StaveProfile.ScoreOnly : 0,
-      },
-      notation: {
-        elements: {},
-      },
-      player: { enablePlayer: false },
+      core:    { engine: 'svg', logLevel: 0 },
+      display: { scale: 1.0, barsPerRow: 4 },
+      player:  { enablePlayer: false },
     });
     _atDiv = scoreDiv;
-    _atApi.tex(tex);
+
+    _atApi.error.on(function(e) {
+      console.error('AlphaTab error', e);
+      scoreDiv.innerHTML = '<div style="color:#e05555;padding:8px;font-size:.82rem">譜面エラー: ' + (e.message||JSON.stringify(e)) + '</div>';
+      _atApi = null;
+    });
+
+    _atApi.tex(tex, [0]);
   } catch(e) {
-    scoreDiv.innerHTML = '<div style="color:#e05555;padding:8px;font-size:.82rem">AlphaTab エラー: ' + e.message + '</div>';
-    console.error('AlphaTab error:', e);
+    scoreDiv.innerHTML = '<div style="color:#e05555;padding:8px;font-size:.82rem">初期化エラー: ' + e.message + '</div>';
+    console.error(e);
+    _atApi = null;
   }
 }
-function renderAll(){
-  renderControls();
-  renderGrid();
-  renderScore();
-  renderStatus();
-  jsonArea.value = JSON.stringify(state.pattern, null, 2);
-}
 
+var _masterGain = null;
+function getMaster() {
+  if (!_masterGain || _masterGain.context !== state.audioContext) {
+    _masterGain = state.audioContext.createGain();
+    _masterGain.gain.value = 0.7; // 全体を下げてクリッピング防止
+    // DynamicsCompressor でピークを抑える
+    var comp = state.audioContext.createDynamicsCompressor();
+    comp.threshold.value = -12;
+    comp.knee.value      = 6;
+    comp.ratio.value     = 4;
+    comp.attack.value    = 0.003;
+    comp.release.value   = 0.15;
+    _masterGain.connect(comp);
+    comp.connect(state.audioContext.destination);
+  }
+  return _masterGain;
+}
 function ensureAudio(){
   if(!state.audioContext){
     state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    _masterGain = null; // reset on new context
   }
   if(state.audioContext.state === 'suspended'){
     return state.audioContext.resume();
@@ -792,7 +784,7 @@ function buildReverbMix(amount=0){
   conv.buffer = imp;
   const wet = ctx.createGain();
   wet.gain.value = Math.max(0, Math.min(0.35, amount/100));
-  conv.connect(wet).connect(ctx.destination);
+  conv.connect(wet).connect(getMaster());
   return conv;
 }
 function playNoise(time, dur, filterHz, vol, reverb=0, decay=-1){
@@ -811,7 +803,7 @@ function playNoise(time, dur, filterHz, vol, reverb=0, decay=-1){
   gain.gain.setValueAtTime(vol, time);
   gain.gain.exponentialRampToValueAtTime(0.0001, time + actualDecay);
   const reverbNode = buildReverbMix(reverb);
-  src.connect(filter).connect(gain).connect(ctx.destination);
+  src.connect(filter).connect(gain).connect(getMaster());
   if(reverbNode) filter.connect(reverbNode);
   src.start(time);
   src.stop(time + dur);
@@ -830,7 +822,7 @@ function playTone(time, f1, f2, dur, vol, wave='sine', reverb=0, attack=0.001){
   g.gain.linearRampToValueAtTime(vol, time + attack);
   g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
   const reverbNode = buildReverbMix(reverb);
-  o.connect(filter).connect(g).connect(state.audioContext.destination);
+  o.connect(filter).connect(g).connect(getMaster());
   if(reverbNode) filter.connect(reverbNode);
   o.start(time);
   o.stop(time + dur + 0.02);
@@ -1119,7 +1111,7 @@ function fireWithOrn(trackId, step, time, baseVel){
     var _g=state.audioContext.createGain();
     _src.buffer=_s.buffer;
     _g.gain.setValueAtTime(Math.min(1.2,Math.max(0.05,baseVel)),time);
-    _src.connect(_g).connect(state.audioContext.destination);
+    _src.connect(_g).connect(getMaster());
     _src.start(time);
     return;
   }
