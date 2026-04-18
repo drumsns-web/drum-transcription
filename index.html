@@ -759,21 +759,42 @@ function renderScore(){
     _atApi=new alphaTab.AlphaTabApi(wrap,{
       core:{engine:'svg',logLevel:0},
       display:{scale:1.0,barsPerRow:4},
-      notation:{
-        // Voice2の休符を非表示: RestBeat=8, RestHalf=9, RestWhole=10 等
-        // alphaTab.NotationElement で定義されているが番号で指定
-        elements:{
-          8:false,   // RestBeat (quarter/8th/16th rests)
-          9:false,   // RestHalf
-          10:false,  // RestWhole
-        }
-      },
       player:{enablePlayer:false}
     });
     _atDiv=scoreDiv;
+
+    // 描画完了後にSVG全要素を黒に強制
+    _atApi.renderFinished.on(function(){
+      var svgs=wrap.querySelectorAll('svg');
+      svgs.forEach(function(svg){
+        // fill/stroke が薄いグレーになっている要素を黒に
+        svg.querySelectorAll('[fill],[stroke]').forEach(function(el){
+          var f=el.getAttribute('fill');
+          var s=el.getAttribute('stroke');
+          // グレー系の色（#[789abcdef]で始まる薄い色）を黒に
+          if(f&&f!=='none'&&f!=='#000'&&f!=='#000000'&&f.match(/^#[5-9a-f]/i)){
+            el.setAttribute('fill','#000');
+          }
+          if(s&&s!=='none'&&s!=='#000'&&s!=='#000000'&&s.match(/^#[5-9a-f]/i)){
+            el.setAttribute('stroke','#000');
+          }
+        });
+        // CSSカラーがgray/lightgray等の要素も
+        svg.querySelectorAll('*').forEach(function(el){
+          var style=el.getAttribute('style')||'';
+          if(style.match(/fill\s*:\s*(gray|grey|#[89a-f][0-9a-f]{5}|rgba?\([12]\d{2})/i)){
+            el.style.fill='#000';
+          }
+          if(style.match(/stroke\s*:\s*(gray|grey|#[89a-f][0-9a-f]{5}|rgba?\([12]\d{2})/i)){
+            el.style.stroke='#000';
+          }
+        });
+      });
+    });
+
     _atApi.error.on(function(e){
       console.error('[AlphaTab error]',e);
-      scoreDiv.innerHTML='<div style="color:#e05555;padding:8px;font-size:.82rem">譜面エラー: '+(e.message||JSON.stringify(e))+'<br><pre style="font-size:.7rem;overflow:auto;max-height:100px">'+tex.slice(0,300)+'</pre></div>';
+      scoreDiv.innerHTML='<div style="color:#e05555;padding:8px;font-size:.82rem">譜面エラー: '+(e.message||JSON.stringify(e))+'</div>';
       _atApi=null;
     });
     _atApi.tex(tex,[0]);
