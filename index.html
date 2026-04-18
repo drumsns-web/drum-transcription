@@ -864,23 +864,29 @@ function ensureAudio(){
   }
   return Promise.resolve();
 }
+// リバーブコンボルバーをキャッシュ（毎回生成は高負荷）
+var _reverbConv = null, _reverbWet = null;
+function getReverbNode(ctx, amount) {
+  if (!_reverbConv || _reverbConv.context !== ctx) {
+    const len = ctx.sampleRate * 1.5;
+    const imp = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = imp.getChannelData(ch);
+      for (let i = 0; i < len; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/len, 2.4);
+    }
+    _reverbConv = ctx.createConvolver();
+    _reverbConv.buffer = imp;
+    _reverbWet = ctx.createGain();
+    _reverbConv.connect(_reverbWet);
+    _reverbWet.connect(ctx.destination);
+  }
+  _reverbWet.gain.value = Math.max(0, Math.min(0.35, amount/100));
+  return _reverbConv;
+}
 function buildReverbMix(amount=0){
   const ctx = state.audioContext;
   if(!ctx || amount<=0) return null;
-  const len = ctx.sampleRate * 1.2;
-  const imp = ctx.createBuffer(2, len, ctx.sampleRate);
-  for(let ch=0; ch<2; ch++){
-    const data = imp.getChannelData(ch);
-    for(let i=0;i<len;i++){
-      data[i] = (Math.random()*2-1) * Math.pow(1 - i/len, 2.4);
-    }
-  }
-  const conv = ctx.createConvolver();
-  conv.buffer = imp;
-  const wet = ctx.createGain();
-  wet.gain.value = Math.max(0, Math.min(0.35, amount/100));
-  conv.connect(wet).connect(ctx.destination);
-  return conv;
+  return getReverbNode(ctx, amount);
 }
 // ノイズバッファをキャッシュ（毎回生成するとプツプツノイズが出るため）
 var _noiseBuffer = null;
@@ -898,21 +904,22 @@ function getNoiseBuffer(ctx) {
 function playNoise(time, dur, filterHz, vol, reverb=0, decay=-1){
   const ctx = state.audioContext;
   const actualDecay = decay < 0 ? dur : decay;
-  // キャッシュしたノイズバッファを使用（プツプツノイズ防止）
-  const src = ctx.createBufferSource();
-  src.buffer = getNoiseBuffer(ctx);
-  src.loop = true; // ループで長さを確保
+  const nsrc = ctx.createBufferSource();
+  nsrc.buffer = getNoiseBuffer(ctx);
+  nsrc.loop = true;
   const filter = ctx.createBiquadFilter();
   filter.type = 'bandpass';
   filter.frequency.value = filterHz;
+  filter.Q.value = 1.0;
   const gain = ctx.createGain();
   gain.gain.setValueAtTime(vol*0.5, time);
   gain.gain.exponentialRampToValueAtTime(0.0001, time + actualDecay);
   const reverbNode = buildReverbMix(reverb);
-  src.connect(filter).connect(gain).connect(ctx.destination);
+  nsrc.connect(filter).connect(gain).connect(ctx.destination);
   if(reverbNode) filter.connect(reverbNode);
-  src.start(time);
-  src.stop(time + dur);
+  nsrc.start(time);
+  // ゲインが0になった後に停止（ブツ切りクリック防止）
+  nsrc.stop(time + actualDecay + 0.02);
 }
 function playTone(time, f1, f2, dur, vol, wave='sine', reverb=0, attack=0.001){
   const ctx = state.audioContext;
@@ -926,12 +933,13 @@ function playTone(time, f1, f2, dur, vol, wave='sine', reverb=0, attack=0.001){
   o.frequency.exponentialRampToValueAtTime(Math.max(20, f2), time + dur);
   g.gain.setValueAtTime(0.0001, time);
   g.gain.linearRampToValueAtTime(vol*0.5, time + attack);
-  g.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+  // ゲインを滑らかに0へ（クリックノイズ防止）
+  g.gain.setTargetAtTime(0.0001, time + dur * 0.7, dur * 0.1);
   const reverbNode = buildReverbMix(reverb);
   o.connect(filter).connect(g).connect(ctx.destination);
   if(reverbNode) filter.connect(reverbNode);
   o.start(time);
-  o.stop(time + dur + 0.02);
+  o.stop(time + dur + 0.05);
 }
 
 // ============================================================
