@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Drum Notation DAW - TATATAN inspired</title>
   <script src="https://cdn.jsdelivr.net/npm/@coderline/alphatab@latest/dist/alphaTab.js"></script>
+  <style>
     :root{
       --bg:#0d0d1a;
       --panel:#181830;
@@ -281,7 +282,7 @@
     <section class="panel">
       <div class="panel-head">
         <h2>ドラム譜面</h2>
-        <p>VexFlow による本格記譜 — 連桁・休符・加線に対応</p>
+        <p>AlphaTab による本格記譜</p>
       </div>
       <div class="score-scroll">
         <div id="scoreDiv"></div>
@@ -313,7 +314,7 @@
     </div>
     <div style="padding:14px;display:flex;flex-direction:column;gap:10px">
       <div style="font-size:.8rem;color:#9090b8;background:#0a0a1a;border-radius:8px;padding:9px 11px;border:1px solid rgba(168,255,120,0.12)">
-        Moises等で分離済みのドラム単体音源を読み込んでください。<br>未分離では精度が低下します。
+        Moises等で分離済みのドラム単体音源を読み込んでください。未分離では精度が低下します。
       </div>
       <div style="display:flex;gap:8px;align-items:center">
         <label class="btn" style="cursor:pointer;flex:1;text-align:center;font-size:.85rem">
@@ -324,8 +325,7 @@
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <span style="font-size:.8rem;color:#9090b8;white-space:nowrap">BPM（空=自動）</span>
-        <input id="analyzeBpmHint" type="number" min="40" max="240" placeholder="自動"
-          style="background:#0a0a1a;border:1px solid var(--border);color:#ffe66d;border-radius:6px;padding:4px 7px;width:72px;font-size:.88rem">
+        <input id="analyzeBpmHint" type="number" min="40" max="240" placeholder="自動" style="background:#0a0a1a;border:1px solid var(--border);color:#ffe66d;border-radius:6px;padding:4px 7px;width:72px;font-size:.88rem">
         <span style="font-size:.8rem;color:#9090b8;white-space:nowrap">小節数</span>
         <select id="analyzeBarsHint" style="background:#0a0a1a;border:1px solid var(--border);color:#fff;border-radius:6px;padding:4px 7px">
           <option value="1">1</option><option value="2">2</option><option value="4" selected>4</option><option value="8">8</option>
@@ -337,10 +337,7 @@
         </div>
         <div id="analyzeProgLabel" style="font-size:.75rem;color:#9090b8;margin-top:3px">解析中...</div>
       </div>
-      <button id="analyzeStartBtn" class="btn" disabled
-        style="background:#a8ff78;color:#000;font-weight:700;border:none;font-size:.95rem;padding:9px">
-        解析開始
-      </button>
+      <button id="analyzeStartBtn" class="btn" disabled style="background:#a8ff78;color:#000;font-weight:700;border:none;font-size:.95rem;padding:9px">解析開始</button>
       <div id="analyzeResultMsg" style="font-size:.8rem;color:#a8ff78;display:none;text-align:center"></div>
     </div>
   </div>
@@ -643,7 +640,7 @@ function buildAlphaTex(){
   state.pattern.events.forEach(function(ev){
     if(ev.step>=0&&ev.step<totalSt) slots[ev.step].push(ev);
   });
-  var lines=['\\track "Drums" \\instrument percussion \\tempo '+bpm+' \\clef neutral \\articulation defaults'];
+  var lines=[String.raw`\track "Drums" \instrument percussion \tempo `+bpm+String.raw` \clef neutral \articulation defaults`];
   for(var m=0;m<ms;m++){
     var barLen=4*spbVal, tokens=[], si2=0;
     while(si2<barLen){
@@ -660,9 +657,7 @@ function buildAlphaTex(){
                     .filter(function(a,i,arr){return arr.indexOf(a)===i;});
         var orn=getOrn(evs[0].track,abs);
         var sfx=orn==='accent'?'{ac}':orn==='ghost'?'{g}':'';
-        tokens.push(arts.length===1
-          ? arts[0]+'.'+dur+sfx
-          : '('+arts.join(' ')+').'+dur+sfx);
+        tokens.push(arts.length===1?arts[0]+'.'+dur+sfx:'('+arts.join(' ')+').'+dur+sfx);
       }else{
         tokens.push('r.'+dur);
       }
@@ -706,7 +701,6 @@ function renderScore(){
     _atApi=null;
   }
 }
-    const spbVal=spb(),ms=state.pattern.measures;
 function renderAll(){
   renderControls();
   renderGrid();
@@ -717,19 +711,13 @@ function renderAll(){
 
 var _masterGain=null;
 function getMaster(){
-  var ctx=state.audioContext;
-  if(!ctx) return null;
+  var ctx=state.audioContext; if(!ctx) return null;
   if(!_masterGain||_masterGain.context!==ctx){
-    _masterGain=ctx.createGain();
-    _masterGain.gain.value=0.65;
+    _masterGain=ctx.createGain(); _masterGain.gain.value=0.65;
     var comp=ctx.createDynamicsCompressor();
-    comp.threshold.value=-14;
-    comp.knee.value=6;
-    comp.ratio.value=4;
-    comp.attack.value=0.003;
-    comp.release.value=0.15;
-    _masterGain.connect(comp);
-    comp.connect(getMaster());
+    comp.threshold.value=-14; comp.knee.value=6; comp.ratio.value=4;
+    comp.attack.value=0.003; comp.release.value=0.15;
+    _masterGain.connect(comp); comp.connect(getMaster());
   }
   return _masterGain;
 }
@@ -1517,212 +1505,133 @@ function togRec(tid){
   });
 }
 document.getElementById('samplerBtn').addEventListener('click',openSampler);
+// fireWithOrn wrap for sample playback
+// sample playback handled inside fireWithOrn
+
 
 // ============================================================
 // ドラム音源解析エンジン
 // ============================================================
-const _AZ_SR=22050, _AZ_FRAME=1024, _AZ_HOP=512;
-
-function _azBandPower(mag,loHz,hiHz,fftSize,sr){
-  var lo=Math.round(loHz/(sr/fftSize));
-  var hi=Math.min(Math.round(hiHz/(sr/fftSize)),mag.length-1);
-  var sum=0;
-  for(var i=lo;i<=hi;i++) sum+=mag[i]*mag[i];
-  return sum/Math.max(1,hi-lo+1);
+const _AZ_SR=22050,_AZ_FRAME=1024,_AZ_HOP=512;
+function _azBandPower(mag,lo,hi,fs,sr){
+  var l=Math.round(lo/(sr/fs)),h=Math.min(Math.round(hi/(sr/fs)),mag.length-1),s=0;
+  for(var i=l;i<=h;i++) s+=mag[i]*mag[i]; return s/Math.max(1,h-l+1);
 }
-
-async function _azResample(audioBuffer){
-  var dur=Math.min(audioBuffer.duration,240);
-  var frames=Math.ceil(dur*_AZ_SR);
-  var offline=new OfflineAudioContext(1,frames,_AZ_SR);
-  var src=offline.createBufferSource();
-  src.buffer=audioBuffer; src.connect(offline.destination); src.start(0);
-  return offline.startRendering();
+async function _azResample(buf){
+  var dur=Math.min(buf.duration,240),frames=Math.ceil(dur*_AZ_SR);
+  var off=new OfflineAudioContext(1,frames,_AZ_SR),src=off.createBufferSource();
+  src.buffer=buf; src.connect(off.destination); src.start(0); return off.startRendering();
 }
-
-function _azDetectOnsets(mono){
-  var samples=mono.getChannelData(0), sr=mono.sampleRate;
-  var fftHalf=_AZ_FRAME/2;
-  var numFrames=Math.floor((samples.length-_AZ_FRAME)/_AZ_HOP);
-  var prevMag=new Float32Array(fftHalf), flux=[];
+function _azOnsets(mono){
+  var s=mono.getChannelData(0),sr=mono.sampleRate,half=_AZ_FRAME/2;
+  var nf=Math.floor((s.length-_AZ_FRAME)/_AZ_HOP),prev=new Float32Array(half),flux=[];
   var hann=new Float32Array(_AZ_FRAME);
   for(var n=0;n<_AZ_FRAME;n++) hann[n]=0.5*(1-Math.cos(2*Math.PI*n/(_AZ_FRAME-1)));
-  for(var f=0;f<numFrames;f++){
-    var start=f*_AZ_HOP;
-    var win=new Float32Array(_AZ_FRAME);
-    for(var i=0;i<_AZ_FRAME;i++) win[i]=(samples[start+i]||0)*hann[i];
-    var mag=new Float32Array(fftHalf);
-    for(var k=0;k<fftHalf;k++){
+  for(var f=0;f<nf;f++){
+    var st=f*_AZ_HOP,win=new Float32Array(_AZ_FRAME);
+    for(var i=0;i<_AZ_FRAME;i++) win[i]=(s[st+i]||0)*hann[i];
+    var mag=new Float32Array(half);
+    for(var k=0;k<half;k++){
       var re=0,im=0;
-      for(var nn=0;nn<_AZ_FRAME;nn++){
-        var ang=2*Math.PI*k*nn/_AZ_FRAME;
-        re+=win[nn]*Math.cos(ang); im-=win[nn]*Math.sin(ang);
-      }
+      for(var n2=0;n2<_AZ_FRAME;n2++){var a=2*Math.PI*k*n2/_AZ_FRAME;re+=win[n2]*Math.cos(a);im-=win[n2]*Math.sin(a);}
       mag[k]=Math.sqrt(re*re+im*im);
     }
-    var fl=0;
-    for(var k2=0;k2<fftHalf;k2++){var d=mag[k2]-prevMag[k2];if(d>0)fl+=d;}
-    flux.push({time:start/sr,flux:fl});
-    prevMag.set(mag);
+    var fl=0; for(var k2=0;k2<half;k2++){var d=mag[k2]-prev[k2];if(d>0)fl+=d;}
+    flux.push({t:st/sr,f:fl}); prev.set(mag);
   }
-  var W=20, onsets=[];
+  var W=20,onsets=[];
   for(var i=W;i<flux.length-W;i++){
-    var local=flux.slice(i-W,i+W).map(function(x){return x.flux;});
-    var mean=local.reduce(function(a,b){return a+b;},0)/local.length;
-    if(flux[i].flux>mean*1.5+0.001&&flux[i].flux>flux[i-1].flux&&flux[i].flux>flux[i+1].flux)
-      onsets.push(flux[i].time);
+    var loc=flux.slice(i-W,i+W).map(function(x){return x.f;});
+    var mean=loc.reduce(function(a,b){return a+b;},0)/loc.length;
+    if(flux[i].f>mean*1.5+0.001&&flux[i].f>flux[i-1].f&&flux[i].f>flux[i+1].f) onsets.push(flux[i].t);
   }
   return onsets;
 }
-
-function _azEstimateBPM(onsets){
+function _azBPM(onsets){
   if(onsets.length<4) return 120;
-  var ivs=[];
-  for(var i=1;i<Math.min(onsets.length,80);i++){
-    var d=onsets[i]-onsets[i-1];
-    if(d>0.1&&d<2.0) ivs.push(d);
-  }
+  var ivs=[],bins={};
+  for(var i=1;i<Math.min(onsets.length,80);i++){var d=onsets[i]-onsets[i-1];if(d>0.1&&d<2.0)ivs.push(d);}
   if(!ivs.length) return 120;
-  var bins={};
-  ivs.forEach(function(iv){
-    var b=Math.round(60/iv);
-    for(var bb=b-2;bb<=b+2;bb++) bins[bb]=(bins[bb]||0)+1;
-  });
+  ivs.forEach(function(iv){var b=Math.round(60/iv);for(var bb=b-2;bb<=b+2;bb++)bins[bb]=(bins[bb]||0)+1;});
   var best=120,bestN=0;
-  Object.keys(bins).forEach(function(b){
-    var bv=parseInt(b);
-    if(bv>=60&&bv<=200&&bins[b]>bestN){bestN=bins[b];best=bv;}
-  });
+  Object.keys(bins).forEach(function(b){var bv=parseInt(b);if(bv>=60&&bv<=200&&bins[b]>bestN){bestN=bins[b];best=bv;}});
   return best;
 }
-
 function _azClassify(onsets,mono){
-  var sr=mono.sampleRate, samples=mono.getChannelData(0);
-  var fftSize=1024, fftHalf=512;
-  var hann=new Float32Array(fftSize);
-  for(var n=0;n<fftSize;n++) hann[n]=0.5*(1-Math.cos(2*Math.PI*n/(fftSize-1)));
+  var sr=mono.sampleRate,s=mono.getChannelData(0),fs=1024,half=512;
+  var hann=new Float32Array(fs);
+  for(var n=0;n<fs;n++) hann[n]=0.5*(1-Math.cos(2*Math.PI*n/(fs-1)));
   return onsets.map(function(t){
-    var start=Math.max(0,Math.floor(t*sr));
-    var win=new Float32Array(fftSize);
-    for(var i=0;i<fftSize;i++) win[i]=(samples[start+i]||0)*hann[i];
-    var mag=new Float32Array(fftHalf);
-    for(var k=0;k<fftHalf;k++){
+    var st=Math.max(0,Math.floor(t*sr)),win=new Float32Array(fs);
+    for(var i=0;i<fs;i++) win[i]=(s[st+i]||0)*hann[i];
+    var mag=new Float32Array(half);
+    for(var k=0;k<half;k++){
       var re=0,im=0;
-      for(var nn=0;nn<fftSize;nn++){
-        var ang=2*Math.PI*k*nn/fftSize;
-        re+=win[nn]*Math.cos(ang); im-=win[nn]*Math.sin(ang);
-      }
+      for(var n2=0;n2<fs;n2++){var a=2*Math.PI*k*n2/fs;re+=win[n2]*Math.cos(a);im-=win[n2]*Math.sin(a);}
       mag[k]=Math.sqrt(re*re+im*im);
     }
-    var kP=_azBandPower(mag,20,200,fftSize,sr);
-    var sP=_azBandPower(mag,180,2000,fftSize,sr);
-    var hP=_azBandPower(mag,5000,18000,fftSize,sr);
-    var track;
-    if(kP>sP*1.8&&kP>hP*2.5)       track='kick';
-    else if(hP>kP*3&&hP>sP*0.8)    track='closed_hihat';
-    else                             track='snare';
-    return {timeSeconds:t, track:track, velocity:Math.round(Math.min(1,(kP+sP+hP))*80+40)};
+    var kP=_azBandPower(mag,20,200,fs,sr),sP=_azBandPower(mag,180,2000,fs,sr),hP=_azBandPower(mag,5000,18000,fs,sr);
+    var track=kP>sP*1.8&&kP>hP*2.5?'kick':hP>kP*3&&hP>sP*0.8?'closed_hihat':'snare';
+    return {timeSeconds:t,track:track,velocity:Math.round(Math.min(1,(kP+sP+hP))*80+40)};
   });
 }
-
-function _azSnapToGrid(events,bpm,measures){
-  var spbVal=spb();
-  var stepDur=(60/bpm)/spbVal;
-  var totalSt=measures*4*spbVal;
+function _azSnap(events,bpm,measures){
+  var spbVal=spb(),stepDur=(60/bpm)/spbVal,totalSt=measures*4*spbVal;
   state.pattern.events=state.pattern.events.filter(function(e){return !e._auto;});
   events.forEach(function(ev){
     var idx=Math.round(ev.timeSeconds/stepDur);
     if(idx<0||idx>=totalSt) return;
-    var exists=state.pattern.events.find(function(e){return e.track===ev.track&&e.step===idx;});
-    if(!exists) state.pattern.events.push({track:ev.track,step:idx,velocity:ev.velocity,_auto:true});
+    if(!state.pattern.events.find(function(e){return e.track===ev.track&&e.step===idx;}))
+      state.pattern.events.push({track:ev.track,step:idx,velocity:ev.velocity,_auto:true});
   });
   state.pattern.events.sort(function(a,b){return a.step-b.step;});
 }
-
 function _sleep(ms){return new Promise(function(r){setTimeout(r,ms);});}
 
 async function runAnalysis(){
-  var fileInput=document.getElementById('analyzeFileInput');
+  var file=document.getElementById('analyzeFileInput').files[0]; if(!file) return;
   var bpmHint=parseInt(document.getElementById('analyzeBpmHint').value)||0;
-  var barsHint=parseInt(document.getElementById('analyzeBarsHint').value)||4;
+  var bars=parseInt(document.getElementById('analyzeBarsHint').value)||4;
   var progWrap=document.getElementById('analyzeProgWrap');
   var progBar=document.getElementById('analyzeProgBar');
   var progLabel=document.getElementById('analyzeProgLabel');
   var resultMsg=document.getElementById('analyzeResultMsg');
   var startBtn=document.getElementById('analyzeStartBtn');
-  var file=fileInput.files[0];
-  if(!file) return;
-
-  function prog(pct,msg){
-    progBar.style.width=(pct*100)+'%';
-    progLabel.textContent=msg;
-  }
-
-  startBtn.disabled=true;
-  progWrap.style.display='block';
-  resultMsg.style.display='none';
-
+  function prog(p,m){progBar.style.width=(p*100)+'%';progLabel.textContent=m;}
+  startBtn.disabled=true; progWrap.style.display='block'; resultMsg.style.display='none';
   try{
     await ensureAudio();
     prog(0.05,'音源を読み込み中...');
     var ab=await file.arrayBuffer();
     var audioBuf=await state.audioContext.decodeAudioData(ab);
-
-    prog(0.15,'モノラル変換中...');
-    await _sleep(20);
+    prog(0.15,'モノラル変換中...'); await _sleep(20);
     var mono=await _azResample(audioBuf);
-
-    prog(0.30,'オンセット検出中...');
-    await _sleep(20);
-    var onsets=_azDetectOnsets(mono);
-
-    prog(0.55,onsets.length+'個検出。BPM推定中...');
-    await _sleep(20);
-    var bpm=bpmHint||_azEstimateBPM(onsets);
-    bpm=Math.max(40,Math.min(240,bpm));
-
-    prog(0.70,'BPM: '+bpm+'。周波数分類中...');
-    await _sleep(20);
+    prog(0.30,'オンセット検出中...'); await _sleep(20);
+    var onsets=_azOnsets(mono);
+    prog(0.55,onsets.length+'個検出。BPM推定中...'); await _sleep(20);
+    var bpm=Math.max(40,Math.min(240,bpmHint||_azBPM(onsets)));
+    prog(0.70,'BPM:'+bpm+'。周波数分類中...'); await _sleep(20);
     var events=_azClassify(onsets,mono);
-
-    prog(0.88,'グリッドに配置中...');
-    await _sleep(10);
-
-    state.pattern.measures=barsHint;
-    state.pattern.bpm=bpm;
-    state.pattern.gridMode='s';
-    _azSnapToGrid(events,bpm,barsHint);
-
-    prog(1.0,'完了');
-    savePattern();
-    _atApi=null; // force score re-render
-    renderAll();
-
+    prog(0.88,'グリッドに配置中...'); await _sleep(10);
+    state.pattern.measures=bars; state.pattern.bpm=bpm; state.pattern.gridMode='s';
+    _azSnap(events,bpm,bars);
+    prog(1.0,'完了'); savePattern(); _atApi=null; renderAll();
     resultMsg.style.display='block';
-    resultMsg.textContent='✓ BPM:'+bpm+' / '+events.length+'イベント → '+state.pattern.events.length+'ステップ配置';
-
+    resultMsg.textContent='✓ BPM:'+bpm+' / '+events.length+'件 → '+state.pattern.events.length+'ステップ配置';
     await _sleep(1800);
     document.getElementById('analyzeModal').style.display='none';
-  }catch(e){
-    progLabel.textContent='⚠ エラー: '+e.message;
-    console.error(e);
-  }finally{
-    startBtn.disabled=false;
-  }
+  }catch(e){progLabel.textContent='⚠ エラー: '+e.message; console.error(e);}
+  finally{startBtn.disabled=false;}
 }
-
-// 解析ボタン配線
 document.getElementById('analyzeBtn').addEventListener('click',function(){
   document.getElementById('analyzeModal').style.display='flex';
 });
 document.getElementById('analyzeFileInput').addEventListener('change',function(e){
-  var file=e.target.files[0];
-  if(file){
-    document.getElementById('analyzeFileName').textContent=file.name;
-    document.getElementById('analyzeStartBtn').disabled=false;
-    document.getElementById('analyzeProgWrap').style.display='none';
-    document.getElementById('analyzeResultMsg').style.display='none';
-  }
+  var f=e.target.files[0]; if(!f) return;
+  document.getElementById('analyzeFileName').textContent=f.name;
+  document.getElementById('analyzeStartBtn').disabled=false;
+  document.getElementById('analyzeProgWrap').style.display='none';
+  document.getElementById('analyzeResultMsg').style.display='none';
 });
 document.getElementById('analyzeStartBtn').addEventListener('click',runAnalysis);
 
