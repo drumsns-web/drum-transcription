@@ -629,22 +629,22 @@ var _atApi=null, _atDiv=null;
 function buildAlphaTex(){
   var spbVal=spb(), ms=state.pattern.measures, bpm=state.pattern.bpm;
   var totalSt=ms*4*spbVal;
-  var BS='\u005c'; // U+005C backslash
+  var BS='\u005c';
 
-  // Articulation short names from official docs table
+  // Official short names from docs table
   var ART={
-    kick:'KickHit',
-    snare:'SnareHit',
-    closed_hihat:'HiHatclosed',
-    open_hihat:'HiHatopen',
-    crash:'Crashhighhit',
-    ride:'Ridemiddle',
-    cup:'Ridebell',
-    rimshot:'Snarerimshot',
-    tom10:'HighTomhit',
-    tom12:'HighTomhit',
+    kick:'KickHit',          snare:'SnareHit',
+    closed_hihat:'HiHatclosed', open_hihat:'HiHatopen',
+    crash:'Crashhighhit',    ride:'Ridemiddle',
+    cup:'Ridebell',          rimshot:'Snarerimshot',
+    tom10:'HighTomhit',      tom12:'HighTomhit',
     tom16:'HighFloorTomhit'
   };
+
+  // 上声部：シンバル・ハイハット
+  var UPPER={crash:1,open_hihat:1,closed_hihat:1,ride:1,cup:1};
+  // 下声部：キック・スネア・タム
+  var LOWER={kick:1,snare:1,rimshot:1,tom10:1,tom12:1,tom16:1};
 
   var slots=[];
   for(var si=0;si<totalSt;si++) slots.push([]);
@@ -652,13 +652,6 @@ function buildAlphaTex(){
     if(ev.step>=0&&ev.step<totalSt) slots[ev.step].push(ev);
   });
 
-  // Official format (from docs example):
-  // \track "Drums"
-  // \instrument percussion
-  // \tempo 120
-  // \clef neutral
-  // \articulation defaults
-  // beat.16 beat.16 ... |
   var lines=[];
   lines.push(BS+'track "Drums"');
   lines.push(BS+'instrument percussion');
@@ -666,18 +659,17 @@ function buildAlphaTex(){
   lines.push(BS+'clef neutral');
   lines.push(BS+'articulation defaults');
 
+  // Voice 1: 上声部（シンバル・ハイハット）
+  lines.push(BS+'voice');
   for(var m=0;m<ms;m++){
-    var barLen=4*spbVal;
-    var barTokens=[];
+    var barLen=4*spbVal, barTokens=[];
     for(var si2=0;si2<barLen;si2++){
       var abs=m*barLen+si2;
-      var evs=slots[abs]||[];
+      var evs=(slots[abs]||[]).filter(function(ev){return UPPER[ev.track];});
       if(evs.length>0){
-        var arts=evs.map(function(ev){return ART[ev.track]||'SnareHit';})
+        var arts=evs.map(function(ev){return ART[ev.track]||'HiHatclosed';})
                     .filter(function(a,i,arr){return arr.indexOf(a)===i;});
-        // Each beat gets .16 duration suffix
-        var beat = arts.length===1 ? arts[0]+'.16' : '('+arts.join(' ')+').16';
-        barTokens.push(beat);
+        barTokens.push(arts.length===1?arts[0]+'.16':'('+arts.join(' ')+').16');
       } else {
         barTokens.push('r.16');
       }
@@ -685,8 +677,26 @@ function buildAlphaTex(){
     lines.push(barTokens.join(' ')+' |');
   }
 
+  // Voice 2: 下声部（キック・スネア・タム）
+  lines.push(BS+'voice');
+  for(var m2=0;m2<ms;m2++){
+    var barLen2=4*spbVal, barTokens2=[];
+    for(var si3=0;si3<barLen2;si3++){
+      var abs2=m2*barLen2+si3;
+      var evs2=(slots[abs2]||[]).filter(function(ev){return LOWER[ev.track];});
+      if(evs2.length>0){
+        var arts2=evs2.map(function(ev){return ART[ev.track]||'SnareHit';})
+                      .filter(function(a,i,arr){return arr.indexOf(a)===i;});
+        barTokens2.push(arts2.length===1?arts2[0]+'.16':'('+arts2.join(' ')+').16');
+      } else {
+        barTokens2.push('r.16');
+      }
+    }
+    lines.push(barTokens2.join(' ')+' |');
+  }
+
   var tex=lines.join('\n');
-  console.log('[AlphaTex]', tex.slice(0,200));
+  console.log('[AlphaTex]', tex.slice(0,300));
   return tex;
 }
 
