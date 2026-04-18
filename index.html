@@ -754,6 +754,21 @@ function renderScore(){
   scoreDiv.innerHTML='';
   var wrap=document.createElement('div');
   wrap.style.cssText='background:#fff;border-radius:8px;overflow:auto;min-height:80px;';
+  // AlphaTabのSVG内の休符クラスをCSSで非表示に
+  if(!document.getElementById('at-rest-hide-style')){
+    var st=document.createElement('style');
+    st.id='at-rest-hide-style';
+    // AlphaTabのSVGクラス: 休符は .at-rest、色が薄い要素は fill opacity で制御
+    st.textContent=[
+      // 休符の符頭・符線を非表示
+      '.at-surface svg .at-rest { display:none !important; }',
+      // SVG全体の薄いグレーを黒に強制
+      '.at-surface svg * { color:#000; }',
+      '.at-surface svg [fill="#CDD8E1"] { fill:#000 !important; }',
+      '.at-surface svg [fill="#9BA4AC"] { fill:#000 !important; }',
+    ].join('\n');
+    document.head.appendChild(st);
+  }
   scoreDiv.appendChild(wrap);
   try{
     _atApi=new alphaTab.AlphaTabApi(wrap,{
@@ -763,33 +778,36 @@ function renderScore(){
     });
     _atDiv=scoreDiv;
 
-    // 描画完了後にSVG全要素を黒に強制
+    // 描画完了後にSVG全要素を黒に強制 + 休符を非表示
     _atApi.renderFinished.on(function(){
-      var svgs=wrap.querySelectorAll('svg');
-      svgs.forEach(function(svg){
-        // fill/stroke が薄いグレーになっている要素を黒に
-        svg.querySelectorAll('[fill],[stroke]').forEach(function(el){
-          var f=el.getAttribute('fill');
-          var s=el.getAttribute('stroke');
-          // グレー系の色（#[789abcdef]で始まる薄い色）を黒に
-          if(f&&f!=='none'&&f!=='#000'&&f!=='#000000'&&f.match(/^#[5-9a-f]/i)){
-            el.setAttribute('fill','#000');
-          }
-          if(s&&s!=='none'&&s!=='#000'&&s!=='#000000'&&s.match(/^#[5-9a-f]/i)){
-            el.setAttribute('stroke','#000');
-          }
+      setTimeout(function(){
+        var svgs=wrap.querySelectorAll('svg');
+        // デバッグ: 実際のクラス名と色を確認
+        var colorSet=new Set(), classSet=new Set();
+        svgs.forEach(function(svg){
+          svg.querySelectorAll('*').forEach(function(el){
+            var f=el.getAttribute('fill');
+            var s=el.getAttribute('stroke');
+            var cls=el.getAttribute('class')||'';
+            if(f&&f!=='none') colorSet.add('fill:'+f);
+            if(s&&s!=='none') colorSet.add('stroke:'+s);
+            if(cls) cls.split(' ').forEach(function(c){if(c)classSet.add(c);});
+            // 黒・透明・白以外を黒に
+            if(f&&f!=='none'&&f!=='transparent'&&!f.match(/^#[fF]{3,6}$/)&&f!=='#000'&&f!=='#000000'){
+              el.setAttribute('fill','#000');
+            }
+            if(s&&s!=='none'&&s!=='transparent'&&!s.match(/^#[fF]{3,6}$/)&&s!=='#000'&&s!=='#000000'){
+              el.setAttribute('stroke','#000');
+            }
+            // 休符クラスを非表示
+            if(cls.toLowerCase().indexOf('rest')!==-1){
+              el.style.display='none';
+            }
+          });
         });
-        // CSSカラーがgray/lightgray等の要素も
-        svg.querySelectorAll('*').forEach(function(el){
-          var style=el.getAttribute('style')||'';
-          if(style.match(/fill\s*:\s*(gray|grey|#[89a-f][0-9a-f]{5}|rgba?\([12]\d{2})/i)){
-            el.style.fill='#000';
-          }
-          if(style.match(/stroke\s*:\s*(gray|grey|#[89a-f][0-9a-f]{5}|rgba?\([12]\d{2})/i)){
-            el.style.stroke='#000';
-          }
-        });
-      });
+        console.log('[AT colors]', Array.from(colorSet).join(', '));
+        console.log('[AT classes]', Array.from(classSet).sort().join(', '));
+      }, 50);
     });
 
     _atApi.error.on(function(e){
