@@ -798,8 +798,12 @@ function renderScore(){
     setTimeout(renderScore,800); return;
   }
   var tex=buildAlphaTex();
+
   if(_atApi&&_atDiv===scoreDiv){
-    try{_atApi.tex(tex,[0]);return;}catch(e){_atApi=null;}
+    try{
+      _atApi.tex(tex,[0]);
+      return;
+    }catch(e){_atApi=null;}
   }
   scoreDiv.innerHTML='';
   var wrap=document.createElement('div');
@@ -874,12 +878,31 @@ function renderScore(){
 }
 
 function renderAll(){
+  // スクロール位置をロック（AlphaTabの再描画で強制スクロールされるのを防ぐ）
+  var sx=window.scrollX||document.documentElement.scrollLeft;
+  var sy=window.scrollY||document.documentElement.scrollTop;
+
+  // スクロールイベントを一時的にキャンセル
+  var _lockScroll=true;
+  var _scrollHandler=function(e){
+    if(_lockScroll){
+      window.scrollTo(sx,sy);
+    }
+  };
+  window.addEventListener('scroll',_scrollHandler,{passive:false});
 
   renderControls();
   renderGrid();
   renderScore();
   renderStatus();
   jsonArea.value = JSON.stringify(state.pattern, null, 2);
+
+  // 200ms後にロック解除（AlphaTabの非同期描画が完了する頃）
+  setTimeout(function(){
+    _lockScroll=false;
+    window.removeEventListener('scroll',_scrollHandler);
+    window.scrollTo(sx,sy);
+  },200);
 }
 
 // getMaster removed - direct destination used
