@@ -421,6 +421,7 @@ const TRACKS = [
   { id:'cup',         label:'Ride Cup',   short:'CU', accent:'#7b4de5', group:'cymbal', scoreY:53,  voice:'upper', midiNote:53, xHead:true },
   { id:'open_hihat',  label:'Open HH',    short:'OH', accent:'#ffd166', group:'hihat',  scoreY:53,  voice:'upper', midiNote:46, xHead:true },
   { id:'closed_hihat',label:'Closed HH',  short:'CH', accent:'#ffe66d', group:'hihat',  scoreY:60,  voice:'upper', midiNote:42, xHead:true },
+  { id:'foot_hihat',  label:'Foot HH',    short:'FH', accent:'#ffcc00', group:'hihat',  scoreY:130, voice:'lower', midiNote:44, xHead:true },
   { id:'tom10',       label:'Tom 10"',    short:'T1', accent:'#f87171', group:'tom',    scoreY:81,  voice:'lower', midiNote:48 },
   { id:'tom12',       label:'Tom 12"',    short:'T2', accent:'#fb923c', group:'tom',    scoreY:88,  voice:'lower', midiNote:47 },
   { id:'tom16',       label:'Floor Tom',  short:'FT', accent:'#fbbf24', group:'tom',    scoreY:116, voice:'lower', midiNote:43 },
@@ -665,14 +666,16 @@ function buildAlphaTex(){
   var ART={
     kick:'KickHit',             snare:'SnareHit',
     closed_hihat:'HiHatclosed', open_hihat:'HiHatopen',
-    crash:'Crashhighhit',       ride:'Ridemiddle',
-    cup:'Ridebell',             rimshot:'Snarerimshot',
+    foot_hihat:'PedalHiHathit', crash:'Crashhighhit',
+    ride:'Ridemiddle',          cup:'Ridebell',
+    rimshot:'Snarerimshot',
     tom10:'HighTomhit',         tom12:'HighTomhit',
     tom16:'HighFloorTomhit'
   };
   var UPPER={crash:1,open_hihat:1,closed_hihat:1,ride:1,cup:1,
              snare:1,rimshot:1,tom10:1,tom12:1,tom16:1};
-  var LOWER={kick:1};
+  // foot_hihatはkickと同じ下声部（足で踏む）
+  var LOWER={kick:1, foot_hihat:1};
 
   // ステップ数 → AlphaTex音符名
   // spbVal に関わらず「実際の音価」で決定
@@ -1093,6 +1096,10 @@ var SYNTH_PRESETS = {
       playNoise(t, 0.35, 9000, v*0.22, 4, 0.30);
       playTone(t, 7000, 5000, 0.10, v*0.04, 'square', 2);
     },
+    foot_hihat: function(t,v){
+      playNoise(t, 0.055, 9000, v*0.48, 0, 0.042);
+      playTone(t, 7500, 6000, 0.05, v*0.06, 'triangle', 0);
+    },
     crash: function(t,v){
       // クラッシュシンバル: 広帯域ノイズ+倍音
       playNoise(t, 1.2, 8000, v*0.35, 18, 1.1);
@@ -1149,6 +1156,10 @@ var SYNTH_PRESETS = {
     open_hihat: function(t,v){
       playNoise(t, 0.20, 11000, v*0.26, 0, 0.18);
     },
+    foot_hihat: function(t,v){
+      playNoise(t, 0.055, 9000, v*0.48, 0, 0.042);
+      playTone(t, 7500, 6000, 0.05, v*0.06, 'triangle', 0);
+    },
     crash: function(t,v){
       playNoise(t, 0.5, 8000, v*0.30, 0, 0.40);
       playTone(t, 5000, 3000, 0.15, v*0.08, 'sawtooth', 0);
@@ -1200,6 +1211,10 @@ var SYNTH_PRESETS = {
       playNoise(t, 0.28, 8800, v*0.24, 3, 0.24);
       playTone(t, 6200, 4000, 0.09, v*0.05, 'square', 1);
     },
+    foot_hihat: function(t,v){
+      playNoise(t, 0.055, 9000, v*0.48, 0, 0.042);
+      playTone(t, 7500, 6000, 0.05, v*0.06, 'triangle', 0);
+    },
     crash: function(t,v){
       playNoise(t, 0.65, 5800, v*0.32, 20, 0.55);
       playTone(t, 4300, 2700, 0.20, v*0.08, 'triangle', 12);
@@ -1249,6 +1264,10 @@ var SYNTH_PRESETS = {
       playNoise(t, 0.45, 7500, v*0.20, 8, 0.40);
       playTone(t, 5200, 3500, 0.12, v*0.06, 'triangle', 5);
     },
+    foot_hihat: function(t,v){
+      playNoise(t, 0.055, 9000, v*0.48, 0, 0.042);
+      playTone(t, 7500, 6000, 0.05, v*0.06, 'triangle', 0);
+    },
     crash: function(t,v){
       playNoise(t, 1.0, 5200, v*0.24, 30, 0.85);
       playTone(t, 3800, 2500, 0.28, v*0.07, 'triangle', 18);
@@ -1293,6 +1312,10 @@ var SYNTH_PRESETS = {
     },
     open_hihat: function(t,v){
       playNoise(t, 0.15, 11000, v*0.32, 0, 0.13);
+    },
+    foot_hihat: function(t,v){
+      playNoise(t, 0.055, 9000, v*0.48, 0, 0.042);
+      playTone(t, 7500, 6000, 0.05, v*0.06, 'triangle', 0);
     },
     crash: function(t,v){
       playNoise(t, 0.40, 9000, v*0.35, 0, 0.32);
@@ -2075,7 +2098,7 @@ var KIT_MAP = {
   'Rock-Kit-HiHat-Shank-2.wav':{track:'closed_hihat', vel:'pp'},
   'Rock-Kit-HiHat-Open.wav':   {track:'open_hihat',   vel:'ff'},
   'Rock-Kit-HiHat-OpenClose.wav':{track:'open_hihat', vel:'pp'},
-  'Rock-Kit-HiHat-Pedal.wav':  {track:'rimshot',      vel:'ff'},
+  'Rock-Kit-HiHat-Pedal.wav':  {track:'foot_hihat',   vel:'ff'},
   'Rock-Kit-Crash-1-1.wav':    {track:'crash',   vel:'ff'},
   'Rock-Kit-Crash-1-2.wav':    {track:'crash',   vel:'pp'},
   'Rock-Kit-Crash-2-1.wav':    {track:'splash',  vel:'ff'},
@@ -2111,7 +2134,7 @@ var KIT_MAP = {
   'Slingerland-Kit-SabianHHX-HiHat-Closed-D.wav':   {track:'closed_hihat', vel:'pp'},
   'Slingerland-Kit-SabianHHX-HiHat-Open-A.wav':     {track:'open_hihat',   vel:'ff'},
   'Slingerland-Kit-SabianHHX-HiHat-OpenClose-A.wav':{track:'open_hihat',   vel:'pp'},
-  'Slingerland-Kit-SabianHHX-HiHat-OpenClose-B.wav':{track:'rimshot',      vel:'ff'},
+  'Slingerland-Kit-SabianHHX-HiHat-OpenClose-B.wav':{track:'foot_hihat',  vel:'ff'},
 };
 
 // マルチサンプルでベロシティに応じてランダム選択して再生
