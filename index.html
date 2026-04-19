@@ -269,6 +269,9 @@
         &#128230; ZIPキット
         <input id="kitZipInput" type="file" accept=".zip" hidden>
       </label>
+      <select id="kitSelector" class="sel btn" style="background:#1a1a3a;border:1px solid rgba(160,160,255,0.4);color:#f0f0ff;padding:0 8px;cursor:pointer" onchange="setActiveKit(this.value)">
+        <option value="">🎵 キット: Mix</option>
+      </select>
       <button id="saveHtmlBtn" class="btn">HTML保存</button>
       <button id="midiBtn" class="btn warn">MIDI</button>
       <label class="file-label">JSON読込<input id="jsonFile" type="file" accept="application/json,.json" hidden></label>
@@ -2076,105 +2079,125 @@ document.getElementById('analyzeStartBtn').addEventListener('click',runAnalysis)
 // ZIPキット読込 & マルチサンプル再生
 // ============================================================
 
-// マルチサンプルバッファ: { trackId: [{buf, velMin, velMax, name}, ...] }
+// マルチサンプルバッファ: { trackId: [{buf, vel, name, kit}, ...] }
 var _MS = {};
+// アクティブキット名（nullの場合は全キットMix）
+var _activeKit = null;
 
 // ファイル名 → {trackId, velGroup} のマッピング
 var KIT_MAP = {
   // ── Rock Kit ──────────────────────────────────────────
-  'Rock-Kit-Kick-ff-1.wav':    {track:'kick',    vel:'ff'},
-  'Rock-Kit-Kick-ff-2.wav':    {track:'kick',    vel:'ff'},
-  'Rock-Kit-Kick-pp-1.wav':    {track:'kick',    vel:'pp'},
-  'Rock-Kit-Kick-pp-2.wav':    {track:'kick',    vel:'pp'},
-  'Rock-Snare-ff-1.wav':       {track:'snare',   vel:'ff'},
-  'Rock-Snare-ff-2.wav':       {track:'snare',   vel:'ff'},
-  'Rock-Snare-ff-3.wav':       {track:'snare',   vel:'ff'},
-  'Rock-Snare-pp-1.wav':       {track:'snare',   vel:'pp'},
-  'Rock-Snare-pp-2.wav':       {track:'snare',   vel:'pp'},
-  'Rock-Snare-pp-3.wav':       {track:'snare',   vel:'pp'},
-  'Rock-Kit-HiHat-Tip-1.wav':  {track:'closed_hihat', vel:'ff'},
-  'Rock-Kit-HiHat-Tip-2.wav':  {track:'closed_hihat', vel:'pp'},
-  'Rock-Kit-HiHat-Shank-1.wav':{track:'closed_hihat', vel:'ff'},
-  'Rock-Kit-HiHat-Shank-2.wav':{track:'closed_hihat', vel:'pp'},
-  'Rock-Kit-HiHat-Open.wav':   {track:'open_hihat',   vel:'ff'},
-  'Rock-Kit-HiHat-OpenClose.wav':{track:'open_hihat', vel:'pp'},
-  'Rock-Kit-HiHat-Pedal.wav':  {track:'foot_hihat',   vel:'ff'},
-  'Rock-Kit-Crash-1-1.wav':    {track:'crash',   vel:'ff'},
-  'Rock-Kit-Crash-1-2.wav':    {track:'crash',   vel:'pp'},
-  'Rock-Kit-Crash-2-1.wav':    {track:'splash',  vel:'ff'},
-  'Rock-Kit-Crash-2-2.wav':    {track:'splash',  vel:'pp'},
-  'Rock-Ride-Tip.wav':         {track:'ride',    vel:'ff'},
-  'Rock-Ride-Shank.wav':       {track:'ride',    vel:'pp'},
-  'Rock-Ride-Bell.wav':        {track:'cup',     vel:'ff'},
+  'Rock-Kit-Kick-ff-1.wav':    {track:'kick',    vel:'ff', kit:'rock'},
+  'Rock-Kit-Kick-ff-2.wav':    {track:'kick',    vel:'ff', kit:'rock'},
+  'Rock-Kit-Kick-pp-1.wav':    {track:'kick',    vel:'pp', kit:'rock'},
+  'Rock-Kit-Kick-pp-2.wav':    {track:'kick',    vel:'pp', kit:'rock'},
+  'Rock-Snare-ff-1.wav':       {track:'snare',   vel:'ff', kit:'rock'},
+  'Rock-Snare-ff-2.wav':       {track:'snare',   vel:'ff', kit:'rock'},
+  'Rock-Snare-ff-3.wav':       {track:'snare',   vel:'ff', kit:'rock'},
+  'Rock-Snare-pp-1.wav':       {track:'snare',   vel:'pp', kit:'rock'},
+  'Rock-Snare-pp-2.wav':       {track:'snare',   vel:'pp', kit:'rock'},
+  'Rock-Snare-pp-3.wav':       {track:'snare',   vel:'pp', kit:'rock'},
+  'Rock-Kit-HiHat-Tip-1.wav':  {track:'closed_hihat', vel:'ff', kit:'rock'},
+  'Rock-Kit-HiHat-Tip-2.wav':  {track:'closed_hihat', vel:'pp', kit:'rock'},
+  'Rock-Kit-HiHat-Shank-1.wav':{track:'closed_hihat', vel:'ff', kit:'rock'},
+  'Rock-Kit-HiHat-Shank-2.wav':{track:'closed_hihat', vel:'pp', kit:'rock'},
+  'Rock-Kit-HiHat-Open.wav':   {track:'open_hihat',   vel:'ff', kit:'rock'},
+  'Rock-Kit-HiHat-OpenClose.wav':{track:'open_hihat', vel:'pp', kit:'rock'},
+  'Rock-Kit-HiHat-Pedal.wav':  {track:'foot_hihat',   vel:'ff', kit:'rock'},
+  'Rock-Kit-Crash-1-1.wav':    {track:'crash',   vel:'ff', kit:'rock'},
+  'Rock-Kit-Crash-1-2.wav':    {track:'crash',   vel:'pp', kit:'rock'},
+  'Rock-Kit-Crash-2-1.wav':    {track:'splash',  vel:'ff', kit:'rock'},
+  'Rock-Kit-Crash-2-2.wav':    {track:'splash',  vel:'pp', kit:'rock'},
+  'Rock-Ride-Tip.wav':         {track:'ride',    vel:'ff', kit:'rock'},
+  'Rock-Ride-Shank.wav':       {track:'ride',    vel:'pp', kit:'rock'},
+  'Rock-Ride-Bell.wav':        {track:'cup',     vel:'ff', kit:'rock'},
   'Rock-Rack-1.wav':           {track:'tom12',   vel:'ff'},
   'Rock-Rack-2.wav':           {track:'tom12',   vel:'pp'},
-  'Rock-Kit-Floor-1.wav':      {track:'tom16',   vel:'ff'},
-  'Rock-Kit-Floor-2.wav':      {track:'tom16',   vel:'pp'},
+  'Rock-Kit-Floor-1.wav':      {track:'tom16',   vel:'ff', kit:'rock'},
+  'Rock-Kit-Floor-2.wav':      {track:'tom16',   vel:'pp', kit:'rock'},
 
   // ── Phonk Kit (Clark Audio) ───────────────────────────
-  'Phonk-Kick-A.wav':          {track:'kick',         vel:'ff'},
-  'Phonk-Kick-B.wav':          {track:'kick',         vel:'ff'},
-  'Phonk-Kick-C.wav':          {track:'kick',         vel:'pp'},
-  'Phonk-Kick-D.wav':          {track:'kick',         vel:'pp'},
-  'Phonk-Snare-A.wav':         {track:'snare',        vel:'ff'},
-  'Phonk-Snare-B.wav':         {track:'snare',        vel:'ff'},
-  'Phonk-Snare-C.wav':         {track:'snare',        vel:'pp'},
-  'Phonk-Snare-D.wav':         {track:'snare',        vel:'pp'},
-  'Phonk-HH-Closed-A.wav':     {track:'closed_hihat', vel:'ff'},
-  'Phonk-HH-Closed-B.wav':     {track:'closed_hihat', vel:'ff'},
-  'Phonk-HH-Closed-C.wav':     {track:'closed_hihat', vel:'pp'},
-  'Phonk-HH-Closed-D.wav':     {track:'closed_hihat', vel:'pp'},
-  'Phonk-HH-Open-A.wav':       {track:'open_hihat',   vel:'ff'},
-  'Phonk-HH-Open-B.wav':       {track:'open_hihat',   vel:'pp'},
-  'Phonk-Crash-A.wav':         {track:'crash',        vel:'ff'},
-  'Phonk-Crash-B.wav':         {track:'crash',        vel:'pp'},
-  'Phonk-Rim-A.wav':           {track:'rimshot',      vel:'ff'},
-  'Phonk-Rim-B.wav':           {track:'rimshot',      vel:'pp'},
+  'Phonk-Kick-A.wav':          {track:'kick',         vel:'ff', kit:'phonk'},
+  'Phonk-Kick-B.wav':          {track:'kick',         vel:'ff', kit:'phonk'},
+  'Phonk-Kick-C.wav':          {track:'kick',         vel:'pp', kit:'phonk'},
+  'Phonk-Kick-D.wav':          {track:'kick',         vel:'pp', kit:'phonk'},
+  'Phonk-Snare-A.wav':         {track:'snare',        vel:'ff', kit:'phonk'},
+  'Phonk-Snare-B.wav':         {track:'snare',        vel:'ff', kit:'phonk'},
+  'Phonk-Snare-C.wav':         {track:'snare',        vel:'pp', kit:'phonk'},
+  'Phonk-Snare-D.wav':         {track:'snare',        vel:'pp', kit:'phonk'},
+  'Phonk-HH-Closed-A.wav':     {track:'closed_hihat', vel:'ff', kit:'phonk'},
+  'Phonk-HH-Closed-B.wav':     {track:'closed_hihat', vel:'ff', kit:'phonk'},
+  'Phonk-HH-Closed-C.wav':     {track:'closed_hihat', vel:'pp', kit:'phonk'},
+  'Phonk-HH-Closed-D.wav':     {track:'closed_hihat', vel:'pp', kit:'phonk'},
+  'Phonk-HH-Open-A.wav':       {track:'open_hihat',   vel:'ff', kit:'phonk'},
+  'Phonk-HH-Open-B.wav':       {track:'open_hihat',   vel:'pp', kit:'phonk'},
+  'Phonk-Crash-A.wav':         {track:'crash',        vel:'ff', kit:'phonk'},
+  'Phonk-Crash-B.wav':         {track:'crash',        vel:'pp', kit:'phonk'},
+  'Phonk-Rim-A.wav':           {track:'rimshot',      vel:'ff', kit:'phonk'},
+  'Phonk-Rim-B.wav':           {track:'rimshot',      vel:'pp', kit:'phonk'},
+
+  // ── Lofi Kit (Clark Audio) ──────────────────────────────
+  'Lofi-Kick-A.wav':           {track:'kick',         vel:'ff', kit:'lofi'},
+  'Lofi-Kick-B.wav':           {track:'kick',         vel:'ff', kit:'lofi'},
+  'Lofi-Kick-C.wav':           {track:'kick',         vel:'pp', kit:'lofi'},
+  'Lofi-Kick-D.wav':           {track:'kick',         vel:'pp', kit:'lofi'},
+  'Lofi-Snare-A.wav':          {track:'snare',        vel:'ff', kit:'lofi'},
+  'Lofi-Snare-B.wav':          {track:'snare',        vel:'ff', kit:'lofi'},
+  'Lofi-Snare-C.wav':          {track:'snare',        vel:'pp', kit:'lofi'},
+  'Lofi-Snare-D.wav':          {track:'snare',        vel:'pp', kit:'lofi'},
+  'Lofi-HH-Closed-A.wav':      {track:'closed_hihat', vel:'ff', kit:'lofi'},
+  'Lofi-HH-Closed-B.wav':      {track:'closed_hihat', vel:'ff', kit:'lofi'},
+  'Lofi-HH-Closed-C.wav':      {track:'closed_hihat', vel:'pp', kit:'lofi'},
+  'Lofi-HH-Closed-D.wav':      {track:'closed_hihat', vel:'pp', kit:'lofi'},
+  'Lofi-HH-Open-A.wav':        {track:'open_hihat',   vel:'ff', kit:'lofi'},
+  'Lofi-HH-Open-B.wav':        {track:'open_hihat',   vel:'pp', kit:'lofi'},
+  'Lofi-Rim-A.wav':             {track:'rimshot',      vel:'ff', kit:'lofi'},
+  'Lofi-Rim-B.wav':             {track:'rimshot',      vel:'pp', kit:'lofi'},
 
   // ── Boom Bap Kit (Clark Audio) ────────────────────────
-  'BoomBap-Kick-A.wav':        {track:'kick',         vel:'ff'},
-  'BoomBap-Kick-B.wav':        {track:'kick',         vel:'ff'},
-  'BoomBap-Kick-C.wav':        {track:'kick',         vel:'pp'},
-  'BoomBap-Kick-D.wav':        {track:'kick',         vel:'pp'},
-  'BoomBap-Snare-A.wav':       {track:'snare',        vel:'ff'},
-  'BoomBap-Snare-B.wav':       {track:'snare',        vel:'ff'},
-  'BoomBap-Snare-C.wav':       {track:'snare',        vel:'pp'},
-  'BoomBap-Snare-D.wav':       {track:'snare',        vel:'pp'},
-  'BoomBap-HH-Closed-A.wav':   {track:'closed_hihat', vel:'ff'},
-  'BoomBap-HH-Closed-B.wav':   {track:'closed_hihat', vel:'ff'},
-  'BoomBap-HH-Closed-C.wav':   {track:'closed_hihat', vel:'pp'},
-  'BoomBap-HH-Closed-D.wav':   {track:'closed_hihat', vel:'pp'},
-  'BoomBap-HH-Open-A.wav':     {track:'open_hihat',   vel:'ff'},
-  'BoomBap-HH-Open-B.wav':     {track:'open_hihat',   vel:'pp'},
-  'BoomBap-Crash-A.wav':       {track:'crash',        vel:'ff'},
-  'BoomBap-Crash-B.wav':       {track:'crash',        vel:'pp'},
-  'BoomBap-Ride-A.wav':        {track:'ride',         vel:'ff'},
-  'BoomBap-Ride-B.wav':        {track:'ride',         vel:'pp'},
+  'BoomBap-Kick-A.wav':        {track:'kick',         vel:'ff', kit:'boombap'},
+  'BoomBap-Kick-B.wav':        {track:'kick',         vel:'ff', kit:'boombap'},
+  'BoomBap-Kick-C.wav':        {track:'kick',         vel:'pp', kit:'boombap'},
+  'BoomBap-Kick-D.wav':        {track:'kick',         vel:'pp', kit:'boombap'},
+  'BoomBap-Snare-A.wav':       {track:'snare',        vel:'ff', kit:'boombap'},
+  'BoomBap-Snare-B.wav':       {track:'snare',        vel:'ff', kit:'boombap'},
+  'BoomBap-Snare-C.wav':       {track:'snare',        vel:'pp', kit:'boombap'},
+  'BoomBap-Snare-D.wav':       {track:'snare',        vel:'pp', kit:'boombap'},
+  'BoomBap-HH-Closed-A.wav':   {track:'closed_hihat', vel:'ff', kit:'boombap'},
+  'BoomBap-HH-Closed-B.wav':   {track:'closed_hihat', vel:'ff', kit:'boombap'},
+  'BoomBap-HH-Closed-C.wav':   {track:'closed_hihat', vel:'pp', kit:'boombap'},
+  'BoomBap-HH-Closed-D.wav':   {track:'closed_hihat', vel:'pp', kit:'boombap'},
+  'BoomBap-HH-Open-A.wav':     {track:'open_hihat',   vel:'ff', kit:'boombap'},
+  'BoomBap-HH-Open-B.wav':     {track:'open_hihat',   vel:'pp', kit:'boombap'},
+  'BoomBap-Crash-A.wav':       {track:'crash',        vel:'ff', kit:'boombap'},
+  'BoomBap-Crash-B.wav':       {track:'crash',        vel:'pp', kit:'boombap'},
+  'BoomBap-Ride-A.wav':        {track:'ride',         vel:'ff', kit:'boombap'},
+  'BoomBap-Ride-B.wav':        {track:'ride',         vel:'pp', kit:'boombap'},
 
   // ── Slingerland Kit ───────────────────────────────────
-  'Ludwig-Snare-A.wav':                              {track:'snare',        vel:'ff'},
-  'Ludwig-Snare-B.wav':                              {track:'snare',        vel:'ff'},
-  'Ludwig-Snare-C.wav':                              {track:'snare',        vel:'pp'},
-  'Ludwig-Snare-D.wav':                              {track:'snare',        vel:'pp'},
-  'Slingerland-Kit-FloorTom-A.wav':                  {track:'tom16',        vel:'ff'},
-  'Slingerland-Kit-FloorTom-B.wav':                  {track:'tom16',        vel:'pp'},
-  'Slingerland-Kit-Kick-A.wav':                      {track:'kick',         vel:'ff'},
-  'Slingerland-Kit-Kick-B.wav':                      {track:'kick',         vel:'pp'},
-  'Slingerland-Kit-RackTom-A.wav':                   {track:'tom12',        vel:'ff'},
-  'Slingerland-Kit-RackTom-B.wav':                   {track:'tom12',        vel:'pp'},
-  'Slingerland-Kit-Sabian-Crash-Left-A.wav':         {track:'crash',        vel:'ff'},
-  'Slingerland-Kit-Sabian-Crash-Left-B.wav':         {track:'crash',        vel:'pp'},
-  'Slingerland-Kit-Sabian-Crash-Right-A.wav':        {track:'splash',       vel:'ff'},
-  'Slingerland-Kit-Sabian-Crash-Right-B.wav':        {track:'splash',       vel:'pp'},
-  'Slingerland-Kit-Sabian-Ride-A.wav':               {track:'ride',         vel:'ff'},
-  'Slingerland-Kit-Sabian-Ride-B.wav':               {track:'ride',         vel:'pp'},
-  'Slingerland-Kit-SabianHHX-HiHat-Closed-A.wav':   {track:'closed_hihat', vel:'ff'},
-  'Slingerland-Kit-SabianHHX-HiHat-Closed-B.wav':   {track:'closed_hihat', vel:'ff'},
-  'Slingerland-Kit-SabianHHX-HiHat-Closed-C.wav':   {track:'closed_hihat', vel:'pp'},
-  'Slingerland-Kit-SabianHHX-HiHat-Closed-D.wav':   {track:'closed_hihat', vel:'pp'},
-  'Slingerland-Kit-SabianHHX-HiHat-Open-A.wav':     {track:'open_hihat',   vel:'ff'},
-  'Slingerland-Kit-SabianHHX-HiHat-OpenClose-A.wav':{track:'open_hihat',   vel:'pp'},
-  'Slingerland-Kit-SabianHHX-HiHat-OpenClose-B.wav':{track:'foot_hihat',  vel:'ff'},
+  'Ludwig-Snare-A.wav':                              {track:'snare',        vel:'ff', kit:'slingerland'},
+  'Ludwig-Snare-B.wav':                              {track:'snare',        vel:'ff', kit:'slingerland'},
+  'Ludwig-Snare-C.wav':                              {track:'snare',        vel:'pp', kit:'slingerland'},
+  'Ludwig-Snare-D.wav':                              {track:'snare',        vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-FloorTom-A.wav':                  {track:'tom16',        vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-FloorTom-B.wav':                  {track:'tom16',        vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-Kick-A.wav':                      {track:'kick',         vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-Kick-B.wav':                      {track:'kick',         vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-RackTom-A.wav':                   {track:'tom12',        vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-RackTom-B.wav':                   {track:'tom12',        vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-Sabian-Crash-Left-A.wav':         {track:'crash',        vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-Sabian-Crash-Left-B.wav':         {track:'crash',        vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-Sabian-Crash-Right-A.wav':        {track:'splash',       vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-Sabian-Crash-Right-B.wav':        {track:'splash',       vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-Sabian-Ride-A.wav':               {track:'ride',         vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-Sabian-Ride-B.wav':               {track:'ride',         vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-SabianHHX-HiHat-Closed-A.wav':   {track:'closed_hihat', vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-SabianHHX-HiHat-Closed-B.wav':   {track:'closed_hihat', vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-SabianHHX-HiHat-Closed-C.wav':   {track:'closed_hihat', vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-SabianHHX-HiHat-Closed-D.wav':   {track:'closed_hihat', vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-SabianHHX-HiHat-Open-A.wav':     {track:'open_hihat',   vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-SabianHHX-HiHat-OpenClose-A.wav':{track:'open_hihat',   vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-SabianHHX-HiHat-OpenClose-B.wav':{track:'foot_hihat',  vel:'ff', kit:'slingerland'},
 };
 
 // マルチサンプルでベロシティに応じてランダム選択して再生
@@ -2183,10 +2206,15 @@ function playMultiSample(trackId, time, velocity){
   if(!ctx || !_MS[trackId] || _MS[trackId].length === 0) return false;
 
   var samples = _MS[trackId];
+  // アクティブキットで絞り込み
+  var kitSamples = _activeKit
+    ? samples.filter(function(s){ return s.kit === _activeKit; })
+    : samples;
+  if(kitSamples.length === 0) kitSamples = samples; // フォールバック
   // ffグループ(vel>=0.5)かppグループかを選択
   var group = velocity >= 0.5 ? 'ff' : 'pp';
-  var candidates = samples.filter(function(s){ return s.vel === group; });
-  if(candidates.length === 0) candidates = samples; // フォールバック
+  var candidates = kitSamples.filter(function(s){ return s.vel === group; });
+  if(candidates.length === 0) candidates = kitSamples; // フォールバック
 
   // ラウンドロビン（毎回違うサンプルを選ぶ）
   if(!_MS[trackId]._rrIdx) _MS[trackId]._rrIdx = {};
@@ -2229,7 +2257,7 @@ async function loadKitZip(file){
           // 重複チェック（同じファイル名はスキップ）
           var exists = _MS[info.track].some(function(s){return s.name===fname;});
           if(!exists){
-            _MS[info.track].push({buf:buf, vel:info.vel, name:fname});
+            _MS[info.track].push({buf:buf, vel:info.vel, name:fname, kit:info.kit||'unknown'});
             loaded++;
           }
         }).catch(function(){});
@@ -2250,12 +2278,43 @@ async function loadKitZip(file){
       }
     });
 
+    updateKitSelector();
     console.log('[KitZip] '+file.name+' loaded '+loaded+' samples across '+totalParts+' tracks');
 
   }catch(e){
     console.error('[KitZip]', e);
     label.childNodes[0].textContent = ' ⚠ エラー';
   }
+}
+
+function setActiveKit(kitName){
+  _activeKit = kitName || null;
+  var sel = document.getElementById('kitSelector');
+  if(sel) sel.value = kitName;
+}
+
+// キット読み込み後にセレクタを更新
+function updateKitSelector(){
+  var sel = document.getElementById('kitSelector');
+  if(!sel) return;
+  // 現在のオプションを保持しつつ新しいキットを追加
+  var existing = Array.from(sel.options).map(function(o){return o.value;});
+  var kits = new Set();
+  Object.values(_MS).forEach(function(arr){
+    arr.forEach(function(s){ if(s.kit) kits.add(s.kit); });
+  });
+  var kitLabels = {
+    rock:'🥁 Rock Kit', slingerland:'🥁 Slingerland',
+    boombap:'🎤 Boom Bap', phonk:'⚡ Phonk', lofi:'☕ Lo-Fi', unknown:'📦 その他'
+  };
+  kits.forEach(function(kit){
+    if(existing.indexOf(kit) === -1){
+      var opt = document.createElement('option');
+      opt.value = kit;
+      opt.textContent = kitLabels[kit] || kit;
+      sel.appendChild(opt);
+    }
+  });
 }
 
 document.getElementById('kitZipInput').addEventListener('change', function(e){
@@ -2270,6 +2329,7 @@ var _BUILTIN_KIT_URLS = [
   'slingerland-kit.zip',
   'boombap-kit.zip',
   'phonk-kit.zip',
+  'lofi-kit.zip',
 ];
 
 async function loadBuiltinKits(){
