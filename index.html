@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Drum Notation DAW - TATATAN inspired</title>
   <script src="https://cdn.jsdelivr.net/npm/@coderline/alphatab@latest/dist/alphaTab.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <style>
     :root{
       --bg:#0d0d1a;
@@ -264,6 +265,10 @@
       <button id="saveJsonBtn" class="btn">JSON保存</button>
       <button id="samplerBtn" class="btn">&#127925; 音源</button>
       <button id="analyzeBtn" class="btn" style="background:#1a3a1a;border-color:#a8ff78;color:#a8ff78">&#127908; 解析</button>
+      <label class="btn" id="kitLoadLabel" style="cursor:pointer;background:#1a1a3a;border-color:#a8ff78;color:#a8ff78">
+        &#128230; ZIPキット
+        <input id="kitZipInput" type="file" accept=".zip" hidden>
+      </label>
       <button id="saveHtmlBtn" class="btn">HTML保存</button>
       <button id="midiBtn" class="btn warn">MIDI</button>
       <label class="file-label">JSON読込<input id="jsonFile" type="file" accept="application/json,.json" hidden></label>
@@ -1428,6 +1433,10 @@ function fireWithOrn(trackId, step, time, baseVel){
     _src.start(time);
     return;
   }
+  // マルチサンプル（ZIPキット）があれば優先使用
+  if(_MS[trackId] && _MS[trackId].length > 0){
+    if(playMultiSample(trackId, time, baseVel)) return;
+  }
   const orn = getOrn(trackId, step);
   const grace = 0.035;
   if(!orn){
@@ -2039,6 +2048,157 @@ document.getElementById('analyzeFileInput').addEventListener('change',function(e
   document.getElementById('analyzeResultMsg').style.display='none';
 });
 document.getElementById('analyzeStartBtn').addEventListener('click',runAnalysis);
+
+// ============================================================
+// ZIPキット読込 & マルチサンプル再生
+// ============================================================
+
+// マルチサンプルバッファ: { trackId: [{buf, velMin, velMax, name}, ...] }
+var _MS = {};
+
+// ファイル名 → {trackId, velGroup} のマッピング
+var KIT_MAP = {
+  // ── Rock Kit ──────────────────────────────────────────
+  'Rock-Kit-Kick-ff-1.wav':    {track:'kick',    vel:'ff'},
+  'Rock-Kit-Kick-ff-2.wav':    {track:'kick',    vel:'ff'},
+  'Rock-Kit-Kick-pp-1.wav':    {track:'kick',    vel:'pp'},
+  'Rock-Kit-Kick-pp-2.wav':    {track:'kick',    vel:'pp'},
+  'Rock-Snare-ff-1.wav':       {track:'snare',   vel:'ff'},
+  'Rock-Snare-ff-2.wav':       {track:'snare',   vel:'ff'},
+  'Rock-Snare-ff-3.wav':       {track:'snare',   vel:'ff'},
+  'Rock-Snare-pp-1.wav':       {track:'snare',   vel:'pp'},
+  'Rock-Snare-pp-2.wav':       {track:'snare',   vel:'pp'},
+  'Rock-Snare-pp-3.wav':       {track:'snare',   vel:'pp'},
+  'Rock-Kit-HiHat-Tip-1.wav':  {track:'closed_hihat', vel:'ff'},
+  'Rock-Kit-HiHat-Tip-2.wav':  {track:'closed_hihat', vel:'pp'},
+  'Rock-Kit-HiHat-Shank-1.wav':{track:'closed_hihat', vel:'ff'},
+  'Rock-Kit-HiHat-Shank-2.wav':{track:'closed_hihat', vel:'pp'},
+  'Rock-Kit-HiHat-Open.wav':   {track:'open_hihat',   vel:'ff'},
+  'Rock-Kit-HiHat-OpenClose.wav':{track:'open_hihat', vel:'pp'},
+  'Rock-Kit-HiHat-Pedal.wav':  {track:'rimshot',      vel:'ff'},
+  'Rock-Kit-Crash-1-1.wav':    {track:'crash',   vel:'ff'},
+  'Rock-Kit-Crash-1-2.wav':    {track:'crash',   vel:'pp'},
+  'Rock-Kit-Crash-2-1.wav':    {track:'splash',  vel:'ff'},
+  'Rock-Kit-Crash-2-2.wav':    {track:'splash',  vel:'pp'},
+  'Rock-Ride-Tip.wav':         {track:'ride',    vel:'ff'},
+  'Rock-Ride-Shank.wav':       {track:'ride',    vel:'pp'},
+  'Rock-Ride-Bell.wav':        {track:'cup',     vel:'ff'},
+  'Rock-Rack-1.wav':           {track:'tom12',   vel:'ff'},
+  'Rock-Rack-2.wav':           {track:'tom12',   vel:'pp'},
+  'Rock-Kit-Floor-1.wav':      {track:'tom16',   vel:'ff'},
+  'Rock-Kit-Floor-2.wav':      {track:'tom16',   vel:'pp'},
+
+  // ── Slingerland Kit ───────────────────────────────────
+  'Ludwig-Snare-A.wav':                              {track:'snare',        vel:'ff'},
+  'Ludwig-Snare-B.wav':                              {track:'snare',        vel:'ff'},
+  'Ludwig-Snare-C.wav':                              {track:'snare',        vel:'pp'},
+  'Ludwig-Snare-D.wav':                              {track:'snare',        vel:'pp'},
+  'Slingerland-Kit-FloorTom-A.wav':                  {track:'tom16',        vel:'ff'},
+  'Slingerland-Kit-FloorTom-B.wav':                  {track:'tom16',        vel:'pp'},
+  'Slingerland-Kit-Kick-A.wav':                      {track:'kick',         vel:'ff'},
+  'Slingerland-Kit-Kick-B.wav':                      {track:'kick',         vel:'pp'},
+  'Slingerland-Kit-RackTom-A.wav':                   {track:'tom12',        vel:'ff'},
+  'Slingerland-Kit-RackTom-B.wav':                   {track:'tom12',        vel:'pp'},
+  'Slingerland-Kit-Sabian-Crash-Left-A.wav':         {track:'crash',        vel:'ff'},
+  'Slingerland-Kit-Sabian-Crash-Left-B.wav':         {track:'crash',        vel:'pp'},
+  'Slingerland-Kit-Sabian-Crash-Right-A.wav':        {track:'splash',       vel:'ff'},
+  'Slingerland-Kit-Sabian-Crash-Right-B.wav':        {track:'splash',       vel:'pp'},
+  'Slingerland-Kit-Sabian-Ride-A.wav':               {track:'ride',         vel:'ff'},
+  'Slingerland-Kit-Sabian-Ride-B.wav':               {track:'ride',         vel:'pp'},
+  'Slingerland-Kit-SabianHHX-HiHat-Closed-A.wav':   {track:'closed_hihat', vel:'ff'},
+  'Slingerland-Kit-SabianHHX-HiHat-Closed-B.wav':   {track:'closed_hihat', vel:'ff'},
+  'Slingerland-Kit-SabianHHX-HiHat-Closed-C.wav':   {track:'closed_hihat', vel:'pp'},
+  'Slingerland-Kit-SabianHHX-HiHat-Closed-D.wav':   {track:'closed_hihat', vel:'pp'},
+  'Slingerland-Kit-SabianHHX-HiHat-Open-A.wav':     {track:'open_hihat',   vel:'ff'},
+  'Slingerland-Kit-SabianHHX-HiHat-OpenClose-A.wav':{track:'open_hihat',   vel:'pp'},
+  'Slingerland-Kit-SabianHHX-HiHat-OpenClose-B.wav':{track:'rimshot',      vel:'ff'},
+};
+
+// マルチサンプルでベロシティに応じてランダム選択して再生
+function playMultiSample(trackId, time, velocity){
+  var ctx = state.audioContext;
+  if(!ctx || !_MS[trackId] || _MS[trackId].length === 0) return false;
+
+  var samples = _MS[trackId];
+  // ffグループ(vel>=0.5)かppグループかを選択
+  var group = velocity >= 0.5 ? 'ff' : 'pp';
+  var candidates = samples.filter(function(s){ return s.vel === group; });
+  if(candidates.length === 0) candidates = samples; // フォールバック
+
+  // ラウンドロビン（毎回違うサンプルを選ぶ）
+  if(!_MS[trackId]._rrIdx) _MS[trackId]._rrIdx = {};
+  var idx = (_MS[trackId]._rrIdx[group] || 0) % candidates.length;
+  _MS[trackId]._rrIdx[group] = idx + 1;
+  var sample = candidates[idx];
+
+  var src = ctx.createBufferSource();
+  src.buffer = sample.buf;
+  var gain = buildFXChain(trackId, Math.min(1.5, velocity));
+  src.connect(gain);
+  src.start(time);
+  return true;
+}
+
+// ZIPファイルを読み込んでマルチサンプルを構築
+async function loadKitZip(file){
+  var label = document.getElementById('kitLoadLabel');
+  label.childNodes[0].textContent = ' 読込中...';
+
+  try{
+    await ensureAudio();
+    var ab = await file.arrayBuffer();
+    var zip = await JSZip.loadAsync(ab);
+
+    var loaded = 0;
+    var promises = [];
+    zip.forEach(function(path, zipEntry){
+      if(zipEntry.dir) return;
+      var fname = path.split('/').pop();
+      if((!fname.endsWith('.wav') && !fname.endsWith('.WAV'))) return;
+      if(fname.startsWith('._')) return;
+
+      var info = KIT_MAP[fname];
+      if(!info) return;
+
+      var p = zipEntry.async('arraybuffer').then(function(wavAb){
+        return state.audioContext.decodeAudioData(wavAb).then(function(buf){
+          if(!_MS[info.track]) _MS[info.track] = [];
+          // 重複チェック（同じファイル名はスキップ）
+          var exists = _MS[info.track].some(function(s){return s.name===fname;});
+          if(!exists){
+            _MS[info.track].push({buf:buf, vel:info.vel, name:fname});
+            loaded++;
+          }
+        }).catch(function(){});
+      });
+      promises.push(p);
+    });
+
+    await Promise.all(promises);
+
+    var totalParts = Object.keys(_MS).length;
+    var kitName = file.name.replace('.zip','').replace(/-/g,' ');
+    label.childNodes[0].textContent = ' ✓ '+kitName;
+
+    TRACKS.forEach(function(tr){
+      var el = document.getElementById('src_'+tr.id);
+      if(el && _MS[tr.id]){
+        el.textContent = '🥁 '+_MS[tr.id].length+'サンプル';
+      }
+    });
+
+    console.log('[KitZip] '+file.name+' loaded '+loaded+' samples across '+totalParts+' tracks');
+
+  }catch(e){
+    console.error('[KitZip]', e);
+    label.childNodes[0].textContent = ' ⚠ エラー';
+  }
+}
+
+document.getElementById('kitZipInput').addEventListener('change', function(e){
+  var file = e.target.files[0];
+  if(file) loadKitZip(file);
+});
 
 renderAll();
 savePattern();
