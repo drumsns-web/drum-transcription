@@ -2111,6 +2111,26 @@ var KIT_MAP = {
   'Rock-Kit-Floor-1.wav':      {track:'tom16',   vel:'ff'},
   'Rock-Kit-Floor-2.wav':      {track:'tom16',   vel:'pp'},
 
+  // ── Boom Bap Kit (Clark Audio) ────────────────────────
+  'BoomBap-Kick-A.wav':        {track:'kick',         vel:'ff'},
+  'BoomBap-Kick-B.wav':        {track:'kick',         vel:'ff'},
+  'BoomBap-Kick-C.wav':        {track:'kick',         vel:'pp'},
+  'BoomBap-Kick-D.wav':        {track:'kick',         vel:'pp'},
+  'BoomBap-Snare-A.wav':       {track:'snare',        vel:'ff'},
+  'BoomBap-Snare-B.wav':       {track:'snare',        vel:'ff'},
+  'BoomBap-Snare-C.wav':       {track:'snare',        vel:'pp'},
+  'BoomBap-Snare-D.wav':       {track:'snare',        vel:'pp'},
+  'BoomBap-HH-Closed-A.wav':   {track:'closed_hihat', vel:'ff'},
+  'BoomBap-HH-Closed-B.wav':   {track:'closed_hihat', vel:'ff'},
+  'BoomBap-HH-Closed-C.wav':   {track:'closed_hihat', vel:'pp'},
+  'BoomBap-HH-Closed-D.wav':   {track:'closed_hihat', vel:'pp'},
+  'BoomBap-HH-Open-A.wav':     {track:'open_hihat',   vel:'ff'},
+  'BoomBap-HH-Open-B.wav':     {track:'open_hihat',   vel:'pp'},
+  'BoomBap-Crash-A.wav':       {track:'crash',        vel:'ff'},
+  'BoomBap-Crash-B.wav':       {track:'crash',        vel:'pp'},
+  'BoomBap-Ride-A.wav':        {track:'ride',         vel:'ff'},
+  'BoomBap-Ride-B.wav':        {track:'ride',         vel:'pp'},
+
   // ── Slingerland Kit ───────────────────────────────────
   'Ludwig-Snare-A.wav':                              {track:'snare',        vel:'ff'},
   'Ludwig-Snare-B.wav':                              {track:'snare',        vel:'ff'},
@@ -2228,6 +2248,7 @@ document.getElementById('kitZipInput').addEventListener('change', function(e){
 var _BUILTIN_KIT_URLS = [
   'rock-kit.zip',
   'slingerland-kit.zip',
+  'boombap-kit.zip',
 ];
 
 async function loadBuiltinKits(){
