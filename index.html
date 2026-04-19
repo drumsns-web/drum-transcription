@@ -2223,8 +2223,44 @@ document.getElementById('kitZipInput').addEventListener('change', function(e){
   if(file) loadKitZip(file);
 });
 
+
+// ── 起動時キット自動ロード（ZIPをfetchして読み込む）─────────
+var _BUILTIN_KIT_URLS = [
+  'rock-kit.zip',
+  'slingerland-kit.zip',
+];
+
+async function loadBuiltinKits(){
+  var label = document.getElementById('kitLoadLabel');
+  label.childNodes[0].textContent = ' 読込中...';
+  var loaded = 0;
+  for(var ki=0;ki<_BUILTIN_KIT_URLS.length;ki++){
+    var url = _BUILTIN_KIT_URLS[ki];
+    try{
+      await ensureAudio();
+      var resp = await fetch(url);
+      if(!resp.ok){ console.warn('[Kit] Not found:', url); continue; }
+      var ab = await resp.arrayBuffer();
+      var blob = new Blob([ab], {type:'application/zip'});
+      var kitName = url.replace('.zip','');
+      var file = new File([blob], url);
+      await loadKitZip(file);
+      loaded++;
+    }catch(e){
+      console.warn('[Kit] Failed to load', url, e.message);
+    }
+  }
+  if(loaded > 0){
+    label.childNodes[0].textContent = ' ✓ キット読込済';
+  } else {
+    label.childNodes[0].textContent = ' &#128230; ZIPキット';
+  }
+}
+
+
 renderAll();
 savePattern();
+loadBuiltinKits();
 </script>
 </body>
 </html>
