@@ -1449,7 +1449,7 @@ function buildFXChain(trackId, baseGain){
 
 
 function fireWithOrn(trackId, step, time, baseVel){
-  // カスタムサンプルがあれば優先再生
+  // カスタムサンプル（手動読込）があれば最優先
   var _s=_S&&_S[trackId];
   if(_s&&_s.buffer&&state.audioContext){
     var _src=state.audioContext.createBufferSource();
@@ -1459,8 +1459,12 @@ function fireWithOrn(trackId, step, time, baseVel){
     _src.start(time);
     return;
   }
-  // マルチサンプル（ZIPキット）があれば優先使用
-  if(_MS[trackId] && _MS[trackId].length > 0){
+  // パート個別にシンセプリセットが指定されていればZIPより優先
+  var hasTrackPreset = !!_trackPreset[trackId];
+  // グローバルプリセットがacoustic以外に変更されていてもZIPをスキップ
+  var globalOverride = (_globalPreset !== 'acoustic');
+  // ZIPキット（マルチサンプル）: シンセプリセットが設定されていない場合のみ使用
+  if(!hasTrackPreset && !globalOverride && _MS[trackId] && _MS[trackId].length > 0){
     if(playMultiSample(trackId, time, baseVel)) return;
   }
   const orn = getOrn(trackId, step);
