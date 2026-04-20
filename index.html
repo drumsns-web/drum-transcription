@@ -1130,4 +1130,782 @@ var SYNTH_PRESETS = {
     },
   },
 };
->
+var _globalPreset = 'acoustic';
+
+function getPresetForTrack(trackId){
+  return SYNTH_PRESETS[_trackPreset[trackId] || _globalPreset] || SYNTH_PRESETS['acoustic'];
+}
+
+function playTrackAt(trackId, time, velocityScale=1){
+  const tr = TRACKS.find(t=>t.id===trackId);
+  if(!tr) return;
+  const v = Math.max(0.05, Math.min(1.2, velocityScale));
+  const preset = getPresetForTrack(trackId);
+  const fn = preset[trackId];
+  if(fn){ fn(time, v); return; }
+  // fallback\uff08\u672a\u5b9a\u7fa9\u697d\u5668\uff09
+  playNoise(time, 0.05, 1000, v*0.2, 0, 0.04);
+}
+function fireWithOrn(trackId, step, time, baseVel){
+  // \u30ab\u30b9\u30bf\u30e0\u30b5\u30f3\u30d7\u30eb\u304c\u3042\u308c\u3070\u512a\u5148\u518d\u751f
+  var _s=_S&&_S[trackId];
+  if(_s&&_s.buffer&&state.audioContext){
+    var _src=state.audioContext.createBufferSource();
+    var _g=state.audioContext.createGain();
+    _src.buffer=_s.buffer;
+    _g.gain.setValueAtTime(Math.min(1.2,Math.max(0.05,baseVel)),time);
+    _src.connect(_g).connect(state.audioContext.destination);
+    _src.start(time);
+    return;
+  }
+  const orn = getOrn(trackId, step);
+  const grace = 0.035;
+  if(!orn){
+    playTrackAt(trackId, time, baseVel);
+    return;
+  }
+  switch(orn){
+    case 'flam':
+      playTrackAt(trackId, time - grace, baseVel*0.45);
+      playTrackAt(trackId, time, baseVel);
+      break;
+    case 'drag':
+      playTrackAt(trackId, time - grace*2.2, baseVel*0.38);
+      playTrackAt(trackId, time - grace, baseVel*0.5);
+      playTrackAt(trackId, time, baseVel);
+      break;
+    case 'ghost':
+      playTrackAt(trackId, time, baseVel*0.22);
+      break;
+    case 'accent':
+      playTrackAt(trackId, time, Math.min(1.2, baseVel*1.25));
+      break;
+    case 'rim':
+      playTrackAt('rimshot', time, baseVel);
+      break;
+    case 'cross':
+      playTrackAt('rimshot', time, baseVel*0.55);
+      break;
+    case 'buzz':
+      playTrackAt(trackId, time - 0.02, baseVel*0.35);
+      playTrackAt(trackId, time - 0.01, baseVel*0.45);
+      playTrackAt(trackId, time, baseVel);
+      break;
+    default:
+      playTrackAt(trackId, time, baseVel);
+  }
+}
+function secondsPerBeat(){
+  return 60 / state.pattern.bpm;
+}
+function secondsPerStep(){
+  return secondsPerBeat() / spb();
+}
+function stepOffset(step){
+  const feel = state.pattern.feelMode;
+  if(feel === 'straight') return 0;
+  const p = spb();
+  const posInBeat = step % p;
+  if(feel === 'swing8'){
+    if(p >= 2 && posInBeat % 2 === 1){
+      return secondsPerStep() * 0.33;
+    }
+    return 0;
+  }
+  if(feel === 'shuffle16'){
+    if(p >= 4 && posInBeat === 1){
+      return secondsPerStep() * 0.18;
+    }
+    if(p >= 4 && posInBeat === 3){
+      return secondsPerStep() * 0.08;
+    }
+  }
+  return 0;
+}
+function scheduler(){
+  const ctx = state.audioContext;
+  if(!ctx || !state.isPlaying) return;
+  const tot = totalSteps();
+  while(state.nextNoteTime < ctx.currentTime + state.scheduleAheadTime){
+    const step = state.scheduleStep;
+    const events = state.pattern.events.filter(e=>e.step===step);
+    const scheduledTime = state.nextNoteTime + stepOffset(step);
+    for(const ev of events){
+      const vel = Math.max(0.3, Math.min(1, (ev.velocity||100)/127));
+      fireWithOrn(ev.track, step, scheduledTime, vel);
+    }
+    // \u8868\u793a\u66f4\u65b0\u306fsetTimeout\u3067\uff08\u30b9\u30b1\u30b8\u30e5\u30fc\u30eb\u6642\u523b\u306b\u5408\u308f\u305b\u3066\uff09
+    const capturedStep = step;
+    const delay = Math.max(0, (scheduledTime - ctx.currentTime) * 1000);
+    setTimeout(()=>{
+      if(!state.isPlaying) return;
+      state.drawStep = capturedStep;
+      renderPlayhead();
+    }, delay);
+
+    state.nextNoteTime += secondsPerStep();
+    state.scheduleStep = (step + 1) % tot;
+  }
+}
+async function startPlayback(){
+  if(state.isPlaying) return;
+  await ensureAudio();
+  state.isPlaying = true;
+  state.scheduleStep = 0;
+  state.drawStep = 0;
+  state.nextNoteTime = state.audioContext.currentTime + 0.05;
+  renderGrid();
+  state.schedulerId = setInterval(scheduler, state.lookahead);
+}
+function stopPlayback(){
+  state.isPlaying = false;
+  if(state.schedulerId) clearInterval(state.schedulerId);
+  state.schedulerId = null;
+  state.scheduleStep = 0;
+  state.drawStep = 0;
+  renderGrid();
+}
+
+function setGridMode(mode){
+  stopPlayback();
+  const oldTotal = totalSteps();
+  state.pattern.gridMode = mode;
+  const newTotal = totalSteps();
+  state.pattern.events = state.pattern.events.filter(e=>e.step < newTotal);
+  Object.keys(state.pattern.ornaments).forEach(k=>{
+    const parts = k.split('|');
+    const step = Number(parts[2]);
+    if(step >= newTotal) delete state.pattern.ornaments[k];
+  });
+  savePattern();
+  renderAll();
+}
+function setMeasures(value){
+  stopPlayback();
+  state.pattern.measures = clampMeasures(value);
+  const max = totalSteps();
+  state.pattern.events = state.pattern.events.filter(e=>e.step < max);
+  Object.keys(state.pattern.ornaments).forEach(k=>{
+    const step = Number(k.split('|')[2]);
+    if(step >= max) delete state.pattern.ornaments[k];
+  });
+  savePattern();
+  renderAll();
+}
+function setBpm(v){
+  state.pattern.bpm = clampBpm(v);
+  savePattern();
+  renderStatus();
+}
+function setFeel(v){
+  state.pattern.feelMode = v;
+  savePattern();
+  renderStatus();
+}
+function clearAll(){
+  stopPlayback();
+  state.pattern.events = [];
+  state.pattern.ornaments = {};
+  savePattern();
+  renderAll();
+}
+function downloadJson(){
+  const blob = new Blob([JSON.stringify(state.pattern, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'drum-pattern.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+function downloadHtml(){
+  const blob = new Blob([document.documentElement.outerHTML], {type:'text/html'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'drum-notation-daw-tatatan-inspired.html';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+async function copyJson(){
+  try{
+    await navigator.clipboard.writeText(jsonArea.value);
+  }catch{
+    jsonArea.select();
+    document.execCommand('copy');
+  }
+}
+function applyJson(){
+  try{
+    state.pattern = normalizePattern(JSON.parse(jsonArea.value));
+    stopPlayback();
+    savePattern();
+    renderAll();
+  }catch{
+    alert('JSON\u306e\u5f62\u5f0f\u304c\u6b63\u3057\u304f\u3042\u308a\u307e\u305b\u3093\u3002');
+  }
+}
+async function loadJsonFile(file){
+  try{
+    const text = await file.text();
+    state.pattern = normalizePattern(JSON.parse(text));
+    stopPlayback();
+    savePattern();
+    renderAll();
+  }catch{
+    alert('JSON\u8aad\u307f\u8fbc\u307f\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002');
+  }
+}
+function encodeVarLen(value){
+  let buffer = value & 0x7f;
+  const bytes = [];
+  while((value >>= 7)){
+    buffer <<= 8;
+    buffer |= (value & 0x7f) | 0x80;
+  }
+  while(true){
+    bytes.push(buffer & 0xff);
+    if(buffer & 0x80) buffer >>= 8; else break;
+  }
+  return bytes;
+}
+function numberToBytes(value, len){
+  const out = new Array(len).fill(0);
+  for(let i=len-1;i>=0;i--){
+    out[i] = value & 0xff;
+    value >>= 8;
+  }
+  return out;
+}
+function stringToBytes(v){ return Array.from(v).map(c=>c.charCodeAt(0)); }
+function exportMidi(){
+  const TPQ = 480;
+  const stepTicks = TPQ / spb();
+  const noteLen = Math.max(30, Math.floor(stepTicks * 0.75));
+  const midiEvents = [];
+  const mpq = Math.round(60000000 / state.pattern.bpm);
+  midiEvents.push({tick:0,data:[0xff,0x51,0x03,...numberToBytes(mpq,3)]});
+  for(const ev of state.pattern.events){
+    const tr = TRACKS.find(t=>t.id===ev.track);
+    if(!tr) continue;
+    const tick = Math.round(ev.step * stepTicks);
+    const velocity = Math.max(1, Math.min(127, ev.velocity || 100));
+    const orn = getOrn(ev.track, ev.step);
+    let note = tr.midiNote;
+    if(orn === 'rim' || orn === 'cross') note = 37;
+    midiEvents.push({tick,data:[0x99,note,velocity]});
+    midiEvents.push({tick:tick+noteLen,data:[0x89,note,0x00]});
+  }
+  midiEvents.push({tick:Math.round(totalSteps()*stepTicks)+1,data:[0xff,0x2f,0x00]});
+  midiEvents.sort((a,b)=>a.tick-b.tick);
+  const trackBytes = [];
+  let prev = 0;
+  for(const e of midiEvents){
+    const delta = e.tick - prev;
+    trackBytes.push(...encodeVarLen(delta), ...e.data);
+    prev = e.tick;
+  }
+  const header = [...stringToBytes('MThd'),...numberToBytes(6,4),...numberToBytes(0,2),...numberToBytes(1,2),...numberToBytes(TPQ,2)];
+  const track = [...stringToBytes('MTrk'),...numberToBytes(trackBytes.length,4),...trackBytes];
+  const bytes = new Uint8Array([...header, ...track]);
+  const blob = new Blob([bytes], {type:'audio/midi'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'drum-pattern.mid'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('playBtn').addEventListener('click', startPlayback);
+document.getElementById('stopBtn').addEventListener('click', stopPlayback);
+document.getElementById('clearBtn').addEventListener('click', clearAll);
+document.getElementById('saveJsonBtn').addEventListener('click', downloadJson);
+document.getElementById('saveHtmlBtn').addEventListener('click', downloadHtml);
+document.getElementById('midiBtn').addEventListener('click', exportMidi);
+document.getElementById('applyJsonBtn').addEventListener('click', applyJson);
+document.getElementById('copyJsonBtn').addEventListener('click', copyJson);
+document.getElementById('jsonFile').addEventListener('change', e=>{
+  const file = e.target.files && e.target.files[0];
+  if(file) loadJsonFile(file);
+  e.target.value = '';
+});
+bpmInput.addEventListener('change', ()=>setBpm(bpmInput.value));
+barsInput.addEventListener('change', ()=>setMeasures(barsInput.value));
+feelInput.addEventListener('change', ()=>setFeel(feelInput.value));
+document.querySelectorAll('.gm-btn').forEach(btn=>{
+  btn.addEventListener('click', ()=>setGridMode(btn.dataset.mode));
+});
+
+// BPM\u30b9\u30e9\u30a4\u30c0\u30fc
+document.getElementById('bpmSlider').addEventListener('input',function(e){
+  var v=parseInt(e.target.value);
+  document.getElementById('bpmInput').value=v;
+  setBpm(v);
+});
+document.getElementById('bpmInput').addEventListener('change',function(){
+  document.getElementById('bpmSlider').value=this.value;
+});
+// \u30d9\u30ed\u30b7\u30c6\u30a3
+var _VP={track:null,step:null};
+function showVelPop(track,step,x,y){
+  var ev=state.pattern.events.find(function(e){return e.track===track&&e.step===step;});
+  if(!ev)return;
+  _VP.track=track;_VP.step=step;
+  var sl=document.getElementById('velSlider'),vl=document.getElementById('velVal');
+  sl.value=ev.velocity||100;vl.textContent=sl.value;
+  sl.oninput=function(){vl.textContent=sl.value;};
+  var p=document.getElementById('velPop');
+  p.style.left=Math.min(x,window.innerWidth-180)+'px';
+  p.style.top=Math.max(10,y-140)+'px';
+  p.style.display='block';
+}
+function applyVelocity(){
+  var ev=state.pattern.events.find(function(e){return e.track===_VP.track&&e.step===_VP.step;});
+  if(ev){ev.velocity=parseInt(document.getElementById('velSlider').value);savePattern();renderGrid();}
+  document.getElementById('velPop').style.display='none';
+}
+document.addEventListener('click',function(e){
+  var p=document.getElementById('velPop');
+  if(p&&p.style.display==='block'&&!p.contains(e.target)&&!e.target.closest('.cell'))p.style.display='none';
+});
+// \u30b5\u30f3\u30d7\u30e9\u30fc
+var _S={},_R={mr:null,chunks:[],track:null};
+function openSampler(){
+  var body=document.getElementById('samplerBody');
+  body.innerHTML='';
+  var bs='min-height:30px;padding:0 8px;border-radius:6px;border:1px solid rgba(160,160,255,0.3);background:#23234a;color:#f0f0ff;cursor:pointer;font-size:.8rem;white-space:nowrap';
+  var presetIds=Object.keys(SYNTH_PRESETS);
+
+  // \u30b0\u30ed\u30fc\u30d0\u30eb\u30d7\u30ea\u30bb\u30c3\u30c8\u9078\u629e
+  var gRow=document.createElement('div');
+  gRow.style.cssText='padding:10px 12px;background:#0f0f28;border-radius:10px;margin-bottom:8px;border:1px solid rgba(255,230,109,0.2)';
+  var gSel='<div style=\"font-size:.82rem;color:#ffe66d;font-weight:700;margin-bottom:8px\">&#127925; \u5168\u4f53\u30d7\u30ea\u30bb\u30c3\u30c8</div>';
+  gSel+='<div style=\"display:flex;gap:6px;flex-wrap:wrap\">';
+  presetIds.forEach(function(pid){
+    var active=(_globalPreset===pid&&Object.keys(_trackPreset).length===0);
+    var gpid=JSON.stringify(pid);
+    gSel+='<button onclick=\"setGlobalPreset('+gpid+')\" style=\"'+bs+
+      (active?';background:#4a3a00;border-color:#ffe66d;color:#ffe66d':'')+
+      '\">'+SYNTH_PRESETS[pid].label+'</button>';
+  });
+  gSel+='</div>';
+  gRow.innerHTML=gSel;
+  body.appendChild(gRow);
+
+  // \u30d1\u30fc\u30c8\u3054\u3068\u306e\u8a2d\u5b9a
+  var hdr=document.createElement('div');
+  hdr.style.cssText='font-size:.78rem;color:#9090b8;padding:4px 2px 6px;letter-spacing:.06em';
+  hdr.textContent='\u30d1\u30fc\u30c8\u5225\u8a2d\u5b9a\uff08\u500b\u5225\u306b\u4e0a\u66f8\u304d\u53ef\u80fd\uff09';
+  body.appendChild(hdr);
+
+  TRACKS.forEach(function(tr){
+    var s=_S[tr.id];
+    var curP=_trackPreset[tr.id]||null;
+    var row=document.createElement('div');
+    row.style.cssText='padding:8px 10px;background:#1a1a30;border-radius:10px;margin-bottom:4px';
+    var tid=JSON.stringify(tr.id);
+
+    // \u30d1\u30fc\u30c8\u540d + \u30d7\u30ea\u30bb\u30c3\u30c8\u9078\u629e
+    var inner='<div style=\"display:flex;align-items:center;gap:8px;margin-bottom:6px\">';
+    inner+='<span style=\"font-weight:700;font-size:.88rem;color:'+tr.accent+';min-width:80px\">'+tr.label+'</span>';
+    inner+='<div style=\"display:flex;gap:4px;flex-wrap:wrap\">';
+    // \u300c\u30b0\u30ed\u30fc\u30d0\u30eb\u306b\u5f93\u3046\u300d\u30dc\u30bf\u30f3
+    inner+='<button onclick=\"clearTrackPreset('+tid+')\" style=\"'+bs+
+      (!curP?';background:#1a3a00;border-color:#a8ff78;color:#a8ff78':'')+
+      '\">\u5168\u4f53\u306b\u5f93\u3046</button>';
+    presetIds.forEach(function(pid){
+      var active=(curP===pid);
+      var ppid=JSON.stringify(pid);
+      inner+='<button onclick=\"setTrackPreset('+tid+','+ppid+')\" style=\"'+bs+
+        (active?';background:#4a3a00;border-color:#ffe66d;color:#ffe66d':'')+
+        '\">'+SYNTH_PRESETS[pid].label+'</button>';
+    });
+    inner+='</div></div>';
+
+    // \u30d5\u30a1\u30a4\u30eb/\u9332\u97f3\u30dc\u30bf\u30f3
+    inner+='<div style=\"display:flex;gap:6px;align-items:center\">';
+    inner+='<span id=\"src_'+tr.id+'\" style=\"font-size:.75rem;color:#9090b8;flex:1\">'+(s?'&#128193; '+s.name:'\u30b7\u30f3\u30bb\u97f3\u6e90')+'</span>';
+    inner+='<button style=\"'+bs+'\" onclick=\"loadSF('+tid+')\">&#128193; \u8aad\u8fbc</button>';
+    inner+='<button id=\"rec_'+tr.id+'\" style=\"'+bs+'\" onclick=\"togRec('+tid+')\">&#127897; \u9332\u97f3</button>';
+    if(s){inner+='<button style=\"'+bs+'\" onclick=\"clearSample('+tid+')\">&#10005;</button>';}
+    inner+='</div>';
+
+    row.innerHTML=inner;
+    body.appendChild(row);
+  });
+  document.getElementById('samplerModal').style.display='flex';
+}
+
+function setGlobalPreset(pid){
+  _globalPreset=pid;
+  _trackPreset={};  // \u500b\u5225\u8a2d\u5b9a\u3092\u30ea\u30bb\u30c3\u30c8
+  openSampler();
+}
+function setTrackPreset(tid,pid){
+  _trackPreset[tid]=pid;
+  openSampler();
+}
+function clearTrackPreset(tid){
+  delete _trackPreset[tid];
+  openSampler();
+}
+function clearSample(tid){
+  delete _S[tid];
+  openSampler();
+}
+function loadSF(tid){
+  var inp=document.createElement('input');inp.type='file';inp.accept='audio/*';
+  inp.onchange=function(e){
+    var f=e.target.files[0];if(!f)return;
+    ensureAudio().then(function(){
+      f.arrayBuffer().then(function(ab){
+        state.audioContext.decodeAudioData(ab,
+          function(buf){_S[tid]={buffer:buf,name:f.name};var el=document.getElementById('src_'+tid);if(el)el.textContent='OK '+f.name;},
+          function(err){alert('Error: '+err);});
+      });
+    });
+  };inp.click();
+}
+function togRec(tid){
+  var btn=document.getElementById('rec_'+tid);
+  if(_R.mr&&_R.mr.state==='recording'){_R.mr.stop();btn.innerHTML='&#127897;';return;}
+  ensureAudio().then(function(){
+    navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+      _R.chunks=[];_R.track=tid;_R.mr=new MediaRecorder(stream);
+      _R.mr.ondataavailable=function(e){_R.chunks.push(e.data);};
+      _R.mr.onstop=function(){
+        stream.getTracks().forEach(function(t){t.stop();});
+        new Blob(_R.chunks,{type:'audio/webm'}).arrayBuffer().then(function(ab){
+          state.audioContext.decodeAudioData(ab,function(buf){
+            _S[tid]={buffer:buf,name:'REC'};
+            var el=document.getElementById('src_'+tid);if(el)el.textContent='OK REC';
+          });
+        });
+      };
+      _R.mr.start();btn.innerHTML='&#9209;';
+    }).catch(function(err){alert('Mic error: '+err.message);});
+  });
+}
+document.getElementById('samplerBtn').addEventListener('click',openSampler);
+// fireWithOrn wrap for sample playback
+// sample playback handled inside fireWithOrn
+
+// ============================================================
+// ZIPキット読込 & マルチサンプル再生
+// ============================================================
+
+var _MS = {};
+var _activeKit = 'rock';
+var _trackSample = {};
+
+var KIT_MAP = {
+  // ── Jazz Funk Kit ─────────────────────────────────────────
+  'Jazz-Kick-ff-1.wav':        {track:'kick',         vel:'ff', kit:'jazz'},
+  'Jazz-Kick-ff-2.wav':        {track:'kick',         vel:'ff', kit:'jazz'},
+  'Jazz-Kick-pp-1.wav':        {track:'kick',         vel:'pp', kit:'jazz'},
+  'Jazz-Snare-ff-1.wav':       {track:'snare',        vel:'ff', kit:'jazz'},
+  'Jazz-Snare-ff-2.wav':       {track:'snare',        vel:'ff', kit:'jazz'},
+  'Jazz-Snare-pp-1.wav':       {track:'snare',        vel:'pp', kit:'jazz'},
+  'Jazz-Snare-pp-2.wav':       {track:'snare',        vel:'pp', kit:'jazz'},
+  'Jazz-HH-Closed-1.wav':      {track:'closed_hihat', vel:'ff', kit:'jazz'},
+  'Jazz-HH-Closed-2.wav':      {track:'closed_hihat', vel:'ff', kit:'jazz'},
+  'Jazz-HH-Closed-3.wav':      {track:'closed_hihat', vel:'pp', kit:'jazz'},
+  'Jazz-HH-Open-1.wav':        {track:'open_hihat',   vel:'ff', kit:'jazz'},
+  'Jazz-HH-Open-2.wav':        {track:'open_hihat',   vel:'pp', kit:'jazz'},
+  'Jazz-Ride-1.wav':           {track:'ride',         vel:'ff', kit:'jazz'},
+  'Jazz-Ride-2.wav':           {track:'ride',         vel:'pp', kit:'jazz'},
+  'Jazz-Cup-1.wav':            {track:'cup',          vel:'ff', kit:'jazz'},
+  'Jazz-Crash-1.wav':          {track:'crash',        vel:'ff', kit:'jazz'},
+  'Jazz-Crash-2.wav':          {track:'crash',        vel:'pp', kit:'jazz'},
+  'Jazz-Rim-1.wav':            {track:'rimshot',      vel:'ff', kit:'jazz'},
+  'Jazz-Rim-2.wav':            {track:'rimshot',      vel:'pp', kit:'jazz'},
+  'Jazz-Tom12-1.wav':          {track:'tom12',        vel:'ff', kit:'jazz'},
+  'Jazz-Tom12-2.wav':          {track:'tom12',        vel:'pp', kit:'jazz'},
+  'Jazz-Tom16-1.wav':          {track:'tom16',        vel:'ff', kit:'jazz'},
+  'Jazz-Tom16-2.wav':          {track:'tom16',        vel:'pp', kit:'jazz'},
+  // ── Synthwave Kit ─────────────────────────────────────────
+  'Synth-Kick-A.wav':          {track:'kick',         vel:'ff', kit:'synthwave'},
+  'Synth-Kick-B.wav':          {track:'kick',         vel:'ff', kit:'synthwave'},
+  'Synth-Kick-C.wav':          {track:'kick',         vel:'pp', kit:'synthwave'},
+  'Synth-Kick-D.wav':          {track:'kick',         vel:'pp', kit:'synthwave'},
+  'Synth-Snare-A.wav':         {track:'snare',        vel:'ff', kit:'synthwave'},
+  'Synth-Snare-B.wav':         {track:'snare',        vel:'ff', kit:'synthwave'},
+  'Synth-Snare-C.wav':         {track:'snare',        vel:'pp', kit:'synthwave'},
+  'Synth-Snare-D.wav':         {track:'snare',        vel:'pp', kit:'synthwave'},
+  'Synth-HH-Closed-A.wav':     {track:'closed_hihat', vel:'ff', kit:'synthwave'},
+  'Synth-HH-Closed-B.wav':     {track:'closed_hihat', vel:'ff', kit:'synthwave'},
+  'Synth-HH-Closed-C.wav':     {track:'closed_hihat', vel:'pp', kit:'synthwave'},
+  'Synth-HH-Closed-D.wav':     {track:'closed_hihat', vel:'pp', kit:'synthwave'},
+  'Synth-HH-Open-A.wav':       {track:'open_hihat',   vel:'ff', kit:'synthwave'},
+  'Synth-HH-Open-B.wav':       {track:'open_hihat',   vel:'pp', kit:'synthwave'},
+  'Synth-Rim-A.wav':           {track:'rimshot',      vel:'ff', kit:'synthwave'},
+  'Synth-Rim-B.wav':           {track:'rimshot',      vel:'pp', kit:'synthwave'},
+  'Synth-Tom10-A.wav':         {track:'tom10',        vel:'ff', kit:'synthwave'},
+  'Synth-Tom12-A.wav':         {track:'tom12',        vel:'ff', kit:'synthwave'},
+  'Synth-Tom16-A.wav':         {track:'tom16',        vel:'ff', kit:'synthwave'},
+  // ── Lo-Fi Kit ─────────────────────────────────────────────
+  'Lofi-Kick-A.wav':           {track:'kick',         vel:'ff', kit:'lofi'},
+  'Lofi-Kick-B.wav':           {track:'kick',         vel:'ff', kit:'lofi'},
+  'Lofi-Kick-C.wav':           {track:'kick',         vel:'pp', kit:'lofi'},
+  'Lofi-Kick-D.wav':           {track:'kick',         vel:'pp', kit:'lofi'},
+  'Lofi-Snare-A.wav':          {track:'snare',        vel:'ff', kit:'lofi'},
+  'Lofi-Snare-B.wav':          {track:'snare',        vel:'ff', kit:'lofi'},
+  'Lofi-Snare-C.wav':          {track:'snare',        vel:'pp', kit:'lofi'},
+  'Lofi-Snare-D.wav':          {track:'snare',        vel:'pp', kit:'lofi'},
+  'Lofi-HH-Closed-A.wav':      {track:'closed_hihat', vel:'ff', kit:'lofi'},
+  'Lofi-HH-Closed-B.wav':      {track:'closed_hihat', vel:'ff', kit:'lofi'},
+  'Lofi-HH-Closed-C.wav':      {track:'closed_hihat', vel:'pp', kit:'lofi'},
+  'Lofi-HH-Closed-D.wav':      {track:'closed_hihat', vel:'pp', kit:'lofi'},
+  'Lofi-HH-Open-A.wav':        {track:'open_hihat',   vel:'ff', kit:'lofi'},
+  'Lofi-HH-Open-B.wav':        {track:'open_hihat',   vel:'pp', kit:'lofi'},
+  'Lofi-Rim-A.wav':            {track:'rimshot',      vel:'ff', kit:'lofi'},
+  'Lofi-Rim-B.wav':            {track:'rimshot',      vel:'pp', kit:'lofi'},
+  // ── Phonk Kit ─────────────────────────────────────────────
+  'Phonk-Kick-A.wav':          {track:'kick',         vel:'ff', kit:'phonk'},
+  'Phonk-Kick-B.wav':          {track:'kick',         vel:'ff', kit:'phonk'},
+  'Phonk-Kick-C.wav':          {track:'kick',         vel:'pp', kit:'phonk'},
+  'Phonk-Kick-D.wav':          {track:'kick',         vel:'pp', kit:'phonk'},
+  'Phonk-Snare-A.wav':         {track:'snare',        vel:'ff', kit:'phonk'},
+  'Phonk-Snare-B.wav':         {track:'snare',        vel:'ff', kit:'phonk'},
+  'Phonk-Snare-C.wav':         {track:'snare',        vel:'pp', kit:'phonk'},
+  'Phonk-Snare-D.wav':         {track:'snare',        vel:'pp', kit:'phonk'},
+  'Phonk-HH-Closed-A.wav':     {track:'closed_hihat', vel:'ff', kit:'phonk'},
+  'Phonk-HH-Closed-B.wav':     {track:'closed_hihat', vel:'ff', kit:'phonk'},
+  'Phonk-HH-Closed-C.wav':     {track:'closed_hihat', vel:'pp', kit:'phonk'},
+  'Phonk-HH-Closed-D.wav':     {track:'closed_hihat', vel:'pp', kit:'phonk'},
+  'Phonk-HH-Open-A.wav':       {track:'open_hihat',   vel:'ff', kit:'phonk'},
+  'Phonk-HH-Open-B.wav':       {track:'open_hihat',   vel:'pp', kit:'phonk'},
+  'Phonk-Crash-A.wav':         {track:'crash',        vel:'ff', kit:'phonk'},
+  'Phonk-Crash-B.wav':         {track:'crash',        vel:'pp', kit:'phonk'},
+  'Phonk-Rim-A.wav':           {track:'rimshot',      vel:'ff', kit:'phonk'},
+  'Phonk-Rim-B.wav':           {track:'rimshot',      vel:'pp', kit:'phonk'},
+  // ── Boom Bap Kit ──────────────────────────────────────────
+  'BoomBap-Kick-A.wav':        {track:'kick',         vel:'ff', kit:'boombap'},
+  'BoomBap-Kick-B.wav':        {track:'kick',         vel:'ff', kit:'boombap'},
+  'BoomBap-Kick-C.wav':        {track:'kick',         vel:'pp', kit:'boombap'},
+  'BoomBap-Kick-D.wav':        {track:'kick',         vel:'pp', kit:'boombap'},
+  'BoomBap-Snare-A.wav':       {track:'snare',        vel:'ff', kit:'boombap'},
+  'BoomBap-Snare-B.wav':       {track:'snare',        vel:'ff', kit:'boombap'},
+  'BoomBap-Snare-C.wav':       {track:'snare',        vel:'pp', kit:'boombap'},
+  'BoomBap-Snare-D.wav':       {track:'snare',        vel:'pp', kit:'boombap'},
+  'BoomBap-HH-Closed-A.wav':   {track:'closed_hihat', vel:'ff', kit:'boombap'},
+  'BoomBap-HH-Closed-B.wav':   {track:'closed_hihat', vel:'ff', kit:'boombap'},
+  'BoomBap-HH-Closed-C.wav':   {track:'closed_hihat', vel:'pp', kit:'boombap'},
+  'BoomBap-HH-Closed-D.wav':   {track:'closed_hihat', vel:'pp', kit:'boombap'},
+  'BoomBap-HH-Open-A.wav':     {track:'open_hihat',   vel:'ff', kit:'boombap'},
+  'BoomBap-HH-Open-B.wav':     {track:'open_hihat',   vel:'pp', kit:'boombap'},
+  'BoomBap-Crash-A.wav':       {track:'crash',        vel:'ff', kit:'boombap'},
+  'BoomBap-Crash-B.wav':       {track:'crash',        vel:'pp', kit:'boombap'},
+  'BoomBap-Ride-A.wav':        {track:'ride',         vel:'ff', kit:'boombap'},
+  'BoomBap-Ride-B.wav':        {track:'ride',         vel:'pp', kit:'boombap'},
+  // ── Slingerland Kit ───────────────────────────────────────
+  'Ludwig-Snare-A.wav':                              {track:'snare',        vel:'ff', kit:'slingerland'},
+  'Ludwig-Snare-B.wav':                              {track:'snare',        vel:'ff', kit:'slingerland'},
+  'Ludwig-Snare-C.wav':                              {track:'snare',        vel:'pp', kit:'slingerland'},
+  'Ludwig-Snare-D.wav':                              {track:'snare',        vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-FloorTom-A.wav':                  {track:'tom16',        vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-FloorTom-B.wav':                  {track:'tom16',        vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-Kick-A.wav':                      {track:'kick',         vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-Kick-B.wav':                      {track:'kick',         vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-RackTom-A.wav':                   {track:'tom12',        vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-RackTom-B.wav':                   {track:'tom12',        vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-Sabian-Crash-Left-A.wav':         {track:'crash',        vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-Sabian-Crash-Left-B.wav':         {track:'crash',        vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-Sabian-Crash-Right-A.wav':        {track:'splash',       vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-Sabian-Crash-Right-B.wav':        {track:'splash',       vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-Sabian-Ride-A.wav':               {track:'ride',         vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-Sabian-Ride-B.wav':               {track:'ride',         vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-SabianHHX-HiHat-Closed-A.wav':   {track:'closed_hihat', vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-SabianHHX-HiHat-Closed-B.wav':   {track:'closed_hihat', vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-SabianHHX-HiHat-Closed-C.wav':   {track:'closed_hihat', vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-SabianHHX-HiHat-Closed-D.wav':   {track:'closed_hihat', vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-SabianHHX-HiHat-Open-A.wav':     {track:'open_hihat',   vel:'ff', kit:'slingerland'},
+  'Slingerland-Kit-SabianHHX-HiHat-OpenClose-A.wav':{track:'open_hihat',   vel:'pp', kit:'slingerland'},
+  'Slingerland-Kit-SabianHHX-HiHat-OpenClose-B.wav':{track:'foot_hihat',   vel:'ff', kit:'slingerland'},
+  // ── Rock Kit ──────────────────────────────────────────────
+  'Rock-Kit-Kick-ff-1.wav':    {track:'kick',         vel:'ff', kit:'rock'},
+  'Rock-Kit-Kick-ff-2.wav':    {track:'kick',         vel:'ff', kit:'rock'},
+  'Rock-Kit-Kick-pp-1.wav':    {track:'kick',         vel:'pp', kit:'rock'},
+  'Rock-Kit-Kick-pp-2.wav':    {track:'kick',         vel:'pp', kit:'rock'},
+  'Rock-Snare-ff-1.wav':       {track:'snare',        vel:'ff', kit:'rock'},
+  'Rock-Snare-ff-2.wav':       {track:'snare',        vel:'ff', kit:'rock'},
+  'Rock-Snare-ff-3.wav':       {track:'snare',        vel:'ff', kit:'rock'},
+  'Rock-Snare-pp-1.wav':       {track:'snare',        vel:'pp', kit:'rock'},
+  'Rock-Snare-pp-2.wav':       {track:'snare',        vel:'pp', kit:'rock'},
+  'Rock-Snare-pp-3.wav':       {track:'snare',        vel:'pp', kit:'rock'},
+  'Rock-Kit-HiHat-Tip-1.wav':  {track:'closed_hihat', vel:'ff', kit:'rock'},
+  'Rock-Kit-HiHat-Tip-2.wav':  {track:'closed_hihat', vel:'pp', kit:'rock'},
+  'Rock-Kit-HiHat-Shank-1.wav':{track:'closed_hihat', vel:'ff', kit:'rock'},
+  'Rock-Kit-HiHat-Shank-2.wav':{track:'closed_hihat', vel:'pp', kit:'rock'},
+  'Rock-Kit-HiHat-Open.wav':   {track:'open_hihat',   vel:'ff', kit:'rock'},
+  'Rock-Kit-HiHat-OpenClose.wav':{track:'open_hihat', vel:'pp', kit:'rock'},
+  'Rock-Kit-HiHat-Pedal.wav':  {track:'foot_hihat',   vel:'ff', kit:'rock'},
+  'Rock-Kit-Crash-1-1.wav':    {track:'crash',        vel:'ff', kit:'rock'},
+  'Rock-Kit-Crash-1-2.wav':    {track:'crash',        vel:'pp', kit:'rock'},
+  'Rock-Kit-Crash-2-1.wav':    {track:'splash',       vel:'ff', kit:'rock'},
+  'Rock-Kit-Crash-2-2.wav':    {track:'splash',       vel:'pp', kit:'rock'},
+  'Rock-Ride-Tip.wav':         {track:'ride',         vel:'ff', kit:'rock'},
+  'Rock-Ride-Shank.wav':       {track:'ride',         vel:'pp', kit:'rock'},
+  'Rock-Ride-Bell.wav':        {track:'cup',          vel:'ff', kit:'rock'},
+  'Rock-Rack-1.wav':           {track:'tom12',        vel:'ff', kit:'rock'},
+  'Rock-Rack-2.wav':           {track:'tom12',        vel:'pp', kit:'rock'},
+  'Rock-Kit-Floor-1.wav':      {track:'tom16',        vel:'ff', kit:'rock'},
+  'Rock-Kit-Floor-2.wav':      {track:'tom16',        vel:'pp', kit:'rock'},
+};
+
+function playMultiSample(trackId, time, velocity){
+  var ctx = state.audioContext;
+  if(!ctx || !_MS[trackId] || _MS[trackId].length === 0) return false;
+  var samples = _MS[trackId];
+  var kitSamples = _activeKit
+    ? samples.filter(function(s){ return s.kit === _activeKit; })
+    : samples;
+  if(kitSamples.length === 0) kitSamples = samples;
+  if(_trackSample[trackId]){
+    var fixed = kitSamples.find(function(s){ return s.name === _trackSample[trackId]; });
+    if(fixed){
+      var src2 = ctx.createBufferSource();
+      src2.buffer = fixed.buf;
+      var gain2 = buildFXChain(trackId, Math.min(1.5, velocity));
+      src2.connect(gain2);
+      src2.start(time);
+      return true;
+    }
+  }
+  var group = velocity >= 0.5 ? 'ff' : 'pp';
+  var candidates = kitSamples.filter(function(s){ return s.vel === group; });
+  if(candidates.length === 0) candidates = kitSamples;
+  if(!_MS[trackId]._rrIdx) _MS[trackId]._rrIdx = {};
+  var idx = (_MS[trackId]._rrIdx[group] || 0) % candidates.length;
+  _MS[trackId]._rrIdx[group] = idx + 1;
+  var sample = candidates[idx];
+  var nsrc = ctx.createBufferSource();
+  nsrc.buffer = sample.buf;
+  var gain = buildFXChain(trackId, Math.min(1.5, velocity));
+  nsrc.connect(gain);
+  nsrc.start(time);
+  return true;
+}
+
+async function loadKitZip(file){
+  var label = document.getElementById('kitLoadLabel');
+  label.childNodes[0].textContent = ' 読込中...';
+  try{
+    await ensureAudio();
+    var ab = await file.arrayBuffer();
+    var zip = await JSZip.loadAsync(ab);
+    var loaded = 0, totalParts = 0;
+    var promises = [];
+    zip.forEach(function(path, zipEntry){
+      if(zipEntry.dir) return;
+      var fname = path.split('/').pop();
+      if(!fname.endsWith('.wav') && !fname.endsWith('.WAV')) return;
+      if(fname.startsWith('._')) return;
+      var info = KIT_MAP[fname];
+      if(!info) return;
+      var p = zipEntry.async('arraybuffer').then(function(wavAb){
+        return state.audioContext.decodeAudioData(wavAb).then(function(buf){
+          if(!_MS[info.track]) _MS[info.track] = [];
+          var exists = _MS[info.track].some(function(s){ return s.name===fname; });
+          if(!exists){
+            _MS[info.track].push({buf:buf, vel:info.vel, name:fname, kit:info.kit||'unknown'});
+            loaded++;
+          }
+        }).catch(function(){});
+      });
+      promises.push(p);
+    });
+    await Promise.all(promises);
+    totalParts = Object.keys(_MS).length;
+    var kitName = file.name.replace('.zip','').replace(/-/g,' ');
+    label.childNodes[0].textContent = ' ✓ '+kitName;
+    TRACKS.forEach(function(tr){
+      var el = document.getElementById('src_'+tr.id);
+      if(el && _MS[tr.id]) el.textContent = '🥁 '+_MS[tr.id].length+'サンプル';
+    });
+    updateKitSelector();
+    console.log('[KitZip] '+file.name+' loaded '+loaded+' samples across '+totalParts+' tracks');
+  }catch(e){
+    console.error('[KitZip]', e);
+    label.childNodes[0].textContent = ' ⚠ エラー';
+  }
+}
+
+function setActiveKit(kitName){
+  _activeKit = kitName || null;
+  var sel = document.getElementById('kitSelector');
+  if(sel) sel.value = kitName;
+}
+
+function setTrackSample(tid, fname){
+  if(fname) _trackSample[tid] = fname;
+  else delete _trackSample[tid];
+}
+
+function updateKitSelector(){
+  var sel = document.getElementById('kitSelector');
+  if(!sel) return;
+  var existing = Array.from(sel.options).map(function(o){ return o.value; });
+  var kits = new Set();
+  Object.values(_MS).forEach(function(arr){
+    arr.forEach(function(s){ if(s.kit) kits.add(s.kit); });
+  });
+  var kitLabels = {
+    rock:'🥁 Rock Kit', slingerland:'🥁 Slingerland',
+    boombap:'🎤 Boom Bap', phonk:'⚡ Phonk',
+    lofi:'☕ Lo-Fi', synthwave:'🌆 Synthwave',
+    jazz:'🎷 Jazz Funk', unknown:'📦 その他'
+  };
+  kits.forEach(function(kit){
+    if(kit !== 'rock' && existing.indexOf(kit) === -1){
+      var opt = document.createElement('option');
+      opt.value = kit;
+      opt.textContent = kitLabels[kit] || kit;
+      sel.appendChild(opt);
+    }
+  });
+}
+
+document.getElementById('kitZipInput').addEventListener('change', function(e){
+  var file = e.target.files[0];
+  if(file) loadKitZip(file);
+});
+
+var _BUILTIN_KIT_URLS = [
+  'rock-kit.zip',
+  'slingerland-kit.zip',
+  'boombap-kit.zip',
+  'phonk-kit.zip',
+  'lofi-kit.zip',
+  'synthwave-kit.zip',
+  'jazz-kit.zip',
+];
+
+async function loadBuiltinKits(){
+  var label = document.getElementById('kitLoadLabel');
+  label.childNodes[0].textContent = ' 読込中...';
+  var loaded = 0;
+  for(var ki=0;ki<_BUILTIN_KIT_URLS.length;ki++){
+    var url = _BUILTIN_KIT_URLS[ki];
+    try{
+      await ensureAudio();
+      var resp = await fetch(url);
+      if(!resp.ok){ console.warn('[Kit] Not found:', url); continue; }
+      var ab = await resp.arrayBuffer();
+      var blob = new Blob([ab], {type:'application/zip'});
+      var file = new File([blob], url);
+      await loadKitZip(file);
+      loaded++;
+    }catch(e){
+      console.warn('[Kit] Failed to load', url, e.message);
+    }
+  }
+  label.childNodes[0].textContent = loaded > 0 ? ' ✓ キット読込済' : ' 📦 ZIPキット';
+}
+
+
+renderAll();
+savePattern();
+loadBuiltinKits();
+</script>
+</body>
+</html>
