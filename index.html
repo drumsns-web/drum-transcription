@@ -1592,13 +1592,31 @@ function openSampler(){
     });
     inner+='</div></div>';
 
-    // \u30d5\u30a1\u30a4\u30eb/\u9332\u97f3\u30dc\u30bf\u30f3
-    inner+='<div style=\"display:flex;gap:6px;align-items:center\">';
-    inner+='<span id=\"src_'+tr.id+'\" style=\"font-size:.75rem;color:#9090b8;flex:1\">'+(s?'&#128193; '+s.name:'\u30b7\u30f3\u30bb\u97f3\u6e90')+'</span>';
-    inner+='<button style=\"'+bs+'\" onclick=\"loadSF('+tid+')\">&#128193; \u8aad\u8fbc</button>';
-    inner+='<button id=\"rec_'+tr.id+'\" style=\"'+bs+'\" onclick=\"togRec('+tid+')\">&#127897; \u9332\u97f3</button>';
-    if(s){inner+='<button style=\"'+bs+'\" onclick=\"clearSample('+tid+')\">&#10005;</button>';}
+    // ファイル/録音ボタン
+    inner+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">';
+    inner+='<span id="src_'+tr.id+'" style="font-size:.75rem;color:#9090b8;flex:1">'+(s?'&#128193; '+s.name:'シンセ音源')+'</span>';
+    inner+='<button style="'+bs+'" onclick=\'loadSF("'+tr.id+'")\'">&#128193; 読込</button>';
+    inner+='<button id="rec_'+tr.id+'" style="'+bs+'" onclick=\'togRec("'+tr.id+'")\'>&#127897; 録音</button>';
+    if(s){inner+='<button style="'+bs+'" onclick=\'clearSample("'+tr.id+'")\'>&#10005;</button>';}
     inner+='</div>';
+
+    // サンプル選択（ZIPキットのサンプルから選択）
+    var msArr = (_MS[tr.id]||[]).filter(function(s){
+      return !_activeKit || s.kit === _activeKit;
+    });
+    if(msArr.length > 0){
+      var curFixed = _trackSample[tr.id] || '';
+      inner+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
+      inner+='<span style="font-size:.72rem;color:#9090b8;min-width:52px">サンプル</span>';
+      inner+='<select style="flex:1;background:#1e1e3a;color:#fff;border:1px solid rgba(160,160,255,0.3);border-radius:4px;padding:2px 6px;font-size:.72rem" onchange=\'setTrackSample("'+tr.id+'",this.value)\'>';
+      inner+='<option value="">🔀 自動(ラウンドロビン)</option>';
+      msArr.forEach(function(smpl){
+        var label = smpl.name.replace(/\.(wav|WAV)$/,'');
+        inner+='<option value="'+smpl.name+'"'+(curFixed===smpl.name?' selected':'')+'>'+label+'</option>';
+      });
+      inner+='</select>';
+      inner+='</div>';
+    }
 
     row.innerHTML=inner;
     body.appendChild(row);
@@ -1949,25 +1967,25 @@ function runAnalysis(file){
         hhPeaks.forEach(function(fi){
           var t=fi*HOP/sr;
           var he=hhE[fi], ce=crashE[fi], ke=kickE[fi];
-          // クラッシュはcrash帯域(2k-10k)がhh帯域(350-800Hz)の2倍以上
-          if(ce > he*2.0){
-            // クラッシュ
+          // クラッシュはcrash帯域(2k-10k)がhh帯域(350-800Hz)の4倍以上
+          if(ce > he*4.0){
             addEvent('crash', t, ce);
           } else {
-            // ハイハット
             addEvent('closed_hihat', t, he);
           }
         });
 
         // クラッシュ専用ピーク: crashPeaks由来（2k-10kHz帯域）
+        // 持続性を厳しく確認（クラッシュは長く鳴り響く）
         crashPeaks.forEach(function(fi){
           var t=fi*HOP/sr;
           var ce=crashE[fi], he=hhE[fi], ke=kickE[fi], kf=kickFE[fi];
-          // 持続性: クラッシュは次の4フレームでもエネルギーが続く
+          // 持続性: 次の8フレーム(約80ms)でもエネルギーが続く
           var after=0;
-          for(var df=1;df<=4;df++) if(fi+df<crashE.length) after+=crashE[fi+df];
-          after/=4;
-          if(after > ce*0.4 && ce > kf*0.3){
+          for(var df=1;df<=8;df++) if(fi+df<crashE.length) after+=crashE[fi+df];
+          after/=8;
+          // 閾値を厳しく: 持続率60%以上 & 低域より5倍以上大きい
+          if(after > ce*0.6 && ce > kf*0.8){
             addEvent('crash', t, ce);
           }
         });
