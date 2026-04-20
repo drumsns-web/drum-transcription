@@ -270,7 +270,7 @@
         <input id="kitZipInput" type="file" accept=".zip" hidden>
       </label>
       <select id="kitSelector" class="sel btn" style="background:#1a1a3a;border:1px solid rgba(160,160,255,0.4);color:#f0f0ff;padding:0 8px;cursor:pointer" onchange="setActiveKit(this.value)">
-        <option value="">🎵 キット: Mix</option>
+        <option value="rock">🥁 Rock Kit</option>
       </select>
       <button id="saveHtmlBtn" class="btn">HTML保存</button>
       <button id="midiBtn" class="btn warn">MIDI</button>
@@ -1837,6 +1837,24 @@ function openSampler(){
     if(s){ inner+='<button style="'+bs+'" onclick=\'clearSample("'+tid+"\")'"+'>&#10005;</button>'; }
     inner+='</div>';
 
+    // サンプル選択（ZIPキットのサンプルから選択）
+    var msArr = _MS[tr.id] ? _MS[tr.id].filter(function(s){
+      return !_activeKit || s.kit === _activeKit;
+    }) : [];
+    if(msArr.length > 0){
+      var curFixed = _trackSample[tr.id] || '';
+      inner+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">';
+      inner+='<span style="font-size:.72rem;color:#9090b8;min-width:60px">サンプル</span>';
+      inner+='<select style="flex:1;background:#1e1e3a;color:#fff;border:1px solid rgba(160,160,255,0.3);border-radius:4px;padding:2px 6px;font-size:.72rem" onchange=\'setTrackSample("'+tid+'",this.value)\'>';
+      inner+='<option value="">🔀 自動(ラウンドロビン)</option>';
+      msArr.forEach(function(smpl){
+        var label = smpl.name.replace(/\.(wav|WAV)$/,'');
+        inner+='<option value="'+smpl.name+'"'+(curFixed===smpl.name?' selected':'')+'>'+label+'</option>';
+      });
+      inner+='</select>';
+      inner+='</div>';
+    }
+
     // エフェクト
     var sl='width:90px;accent-color:#a8ff78;vertical-align:middle';
     var lb='font-size:.72rem;color:#9090b8;min-width:60px';
@@ -1902,6 +1920,10 @@ function setTrackPreset(tid,pid){
 function clearTrackPreset(tid){
   delete _trackPreset[tid];
   openSampler();
+}
+function setTrackSample(tid, fname){
+  if(fname) _trackSample[tid] = fname;
+  else delete _trackSample[tid];
 }
 function setFX(tid, key, val){
   if(!_FX[tid]) _FX[tid]={};
@@ -2081,8 +2103,10 @@ document.getElementById('analyzeStartBtn').addEventListener('click',runAnalysis)
 
 // マルチサンプルバッファ: { trackId: [{buf, vel, name, kit}, ...] }
 var _MS = {};
-// アクティブキット名（nullの場合は全キットMix）
-var _activeKit = null;
+// アクティブキット名（デフォルト: Rock Kit）
+var _activeKit = 'rock';
+// パートごとに固定するサンプル名 { trackId: fname } nullなら自動(ラウンドロビン)
+var _trackSample = {};
 
 // ファイル名 → {trackId, velGroup} のマッピング
 var KIT_MAP = {
@@ -2232,6 +2256,19 @@ function playMultiSample(trackId, time, velocity){
     ? samples.filter(function(s){ return s.kit === _activeKit; })
     : samples;
   if(kitSamples.length === 0) kitSamples = samples; // フォールバック
+  // パートに固定サンプルが指定されていれば優先使用
+  if(_trackSample[trackId]){
+    var fixed = kitSamples.find(function(s){ return s.name === _trackSample[trackId]; });
+    if(fixed){
+      var src2 = ctx.createBufferSource();
+      src2.buffer = fixed.buf;
+      var gain2 = buildFXChain(trackId, Math.min(1.5, velocity));
+      src2.connect(gain2);
+      src2.start(time);
+      return true;
+    }
+  }
+
   // ffグループ(vel>=0.5)かppグループかを選択
   var group = velocity >= 0.5 ? 'ff' : 'pp';
   var candidates = kitSamples.filter(function(s){ return s.vel === group; });
@@ -2318,7 +2355,6 @@ function setActiveKit(kitName){
 function updateKitSelector(){
   var sel = document.getElementById('kitSelector');
   if(!sel) return;
-  // 現在のオプションを保持しつつ新しいキットを追加
   var existing = Array.from(sel.options).map(function(o){return o.value;});
   var kits = new Set();
   Object.values(_MS).forEach(function(arr){
@@ -2328,8 +2364,9 @@ function updateKitSelector(){
     rock:'🥁 Rock Kit', slingerland:'🥁 Slingerland',
     boombap:'🎤 Boom Bap', phonk:'⚡ Phonk', lofi:'☕ Lo-Fi', synthwave:'🌆 Synthwave', unknown:'📦 その他'
   };
+  // rock以外の新しいキットを追加（rockはHTML側で定義済み）
   kits.forEach(function(kit){
-    if(existing.indexOf(kit) === -1){
+    if(kit !== 'rock' && existing.indexOf(kit) === -1){
       var opt = document.createElement('option');
       opt.value = kit;
       opt.textContent = kitLabels[kit] || kit;
