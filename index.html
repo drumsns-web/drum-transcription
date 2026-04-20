@@ -1720,21 +1720,30 @@ function runAnalysis(file){
         // スネアらしさ: 500-4000Hz にもエネルギー
         // ハイハット帯域: 5000Hz以上 → bin 520+
 
+        // キック: 40-120Hz（超低域、基音が非常に低い）
         var kickLo  = Math.round(40  * FS / sr);
-        var kickHi  = Math.round(200 * FS / sr);
+        var kickHi  = Math.round(120 * FS / sr);
+        // キック補助: 40-200Hz 全体エネルギー（分類用）
+        var kickFLo = Math.round(40  * FS / sr);
+        var kickFHi = Math.round(200 * FS / sr);
+        // スネア
         var snareLo = Math.round(150 * FS / sr);
         var snareHi = Math.round(500 * FS / sr);
         var snHiLo  = Math.round(500 * FS / sr);
         var snHiHi  = Math.round(4000* FS / sr);
+        // クラッシュ: 2000-8000Hz（広帯域シンバル、持続が長い）
+        var crashLo = Math.round(2000 * FS / sr);
+        var crashHi = Math.min(Math.round(8000*FS/sr), FS/2-1);
+        // ハイハット
         var hhLo    = Math.round(5000* FS / sr);
         var hhHi    = Math.min(Math.round(16000*FS/sr), FS/2-1);
-        // タム帯域（キックより高く、スネアより低め）
-        var t10Lo   = Math.round(250 * FS / sr);  // Tom10": 250-500Hz
-        var t10Hi   = Math.round(500 * FS / sr);
-        var t12Lo   = Math.round(150 * FS / sr);  // Tom12": 150-350Hz
-        var t12Hi   = Math.round(350 * FS / sr);
-        var t16Lo   = Math.round(80  * FS / sr);  // Floor Tom: 80-200Hz
-        var t16Hi   = Math.round(200 * FS / sr);
+        // タム帯域
+        var t10Lo   = Math.round(280 * FS / sr);  // Tom10": 280-550Hz（高め）
+        var t10Hi   = Math.round(550 * FS / sr);
+        var t12Lo   = Math.round(180 * FS / sr);  // Tom12": 180-380Hz
+        var t12Hi   = Math.round(380 * FS / sr);
+        var t16Lo   = Math.round(120 * FS / sr);  // Floor Tom: 120-280Hz（キックより上）
+        var t16Hi   = Math.round(280 * FS / sr);
 
         function bandEnergy(re, im, lo, hi){
           var e=0;
@@ -1770,26 +1779,30 @@ function runAnalysis(file){
 
         // フレームごとに周波数帯エネルギーを計算
         var nFrames = Math.floor((len-FS)/HOP);
-        var kickE=[], snareE=[], hhE=[], totalE=[];
+        var kickE=[], snareE=[], hhE=[], totalE=[], crashE=[], kickFE=[];
         var t10E=[], t12E=[], t16E=[];
         for(var fi=0;fi<nFrames;fi++){
           var pos=fi*HOP;
           var re=new Float32Array(FS), im=new Float32Array(FS);
           for(var k=0;k<FS;k++) re[k]=mono[pos+k]*hann[k];
           fft(re, im);
-          var ke=bandEnergy(re,im,kickLo,kickHi);
+          var ke=bandEnergy(re,im,kickLo,kickHi);     // 超低域（キック基音）
+          var kf=bandEnergy(re,im,kickFLo,kickFHi); // 低域全体
           var se=bandEnergy(re,im,snareLo,snareHi);
           var sh=bandEnergy(re,im,snHiLo,snHiHi);
           var he=bandEnergy(re,im,hhLo,hhHi);
+          var ce=bandEnergy(re,im,crashLo,crashHi); // クラッシュ帯域
           var rms=0; for(var k2=0;k2<FS;k2++) rms+=mono[pos+k2]*mono[pos+k2];
           rms=Math.sqrt(rms/FS);
-          kickE.push(ke);
+          kickE.push(ke);   // 超低域エネルギー
           snareE.push(se+sh*0.5);
           hhE.push(he);
+          crashE.push(ce);
           totalE.push(rms);
           t10E.push(bandEnergy(re,im,t10Lo,t10Hi));
           t12E.push(bandEnergy(re,im,t12Lo,t12Hi));
           t16E.push(bandEnergy(re,im,t16Lo,t16Hi));
+          kickFE.push(kf);  // 低域全体（タム区別用）
         }
 
         progBar.style.width='50%';
@@ -1824,6 +1837,7 @@ function runAnalysis(file){
         var kickPeaks  = detectOnsets(kickE, 3.5);
         var snarePeaks = detectOnsets(snareE, 3.0);
         var hhPeaks    = detectOnsets(hhE, 2.5);
+        var crashPeaks = detectOnsets(crashE, 3.0);
         var t10Peaks   = detectOnsets(t10E, 3.5);
         var t12Peaks   = detectOnsets(t12E, 3.5);
         var t16Peaks   = detectOnsets(t16E, 3.5);
@@ -1886,59 +1900,82 @@ function runAnalysis(file){
           state.pattern.events.push({track:track,step:step,velocity:vel});
         }
 
-        // キック: 低域が他より支配的
+        // ── 分類ロジック ────────────────────────────────────
+        // キック: 超低域（40-120Hz）が最も支配的
+        // Floor Tomとの区別: キックは超低域>>低域全体比が高い
         kickPeaks.forEach(function(fi){
           var t=fi*HOP/sr;
-          var ke=kickE[fi], se=snareE[fi], he=hhE[fi];
+          var ke=kickE[fi];     // 超低域
+          var kf=kickFE[fi];    // 低域全体
+          var se=snareE[fi], he=hhE[fi];
           var t16=t16E[fi];
-          // キックとFloor Tomは低域が近い → キックは40-80Hz中心、タムは80-200Hz中心
-          if(ke>se*1.2 && ke>he*2.0 && ke>t16*1.3) addEvent('kick', t, ke);
+          // キックは超低域が非常に強く、Floor Tomより低い基音を持つ
+          // ke/kf の比率が高い = 超低域中心 = キック
+          var kickRatio = kf>0 ? ke/kf : 0;
+          if(ke>se*1.0 && ke>he*1.5 && kickRatio>0.55){
+            addEvent('kick', t, ke);
+          }
         });
 
-        // スネア: 中高域が支配的
+        // スネア: 中高域ノイズが支配的
         snarePeaks.forEach(function(fi){
           var t=fi*HOP/sr;
-          var ke=kickE[fi], se=snareE[fi];
+          var ke=kickE[fi], se=snareE[fi], he=hhE[fi];
           var t10=t10E[fi], t12=t12E[fi];
-          // タムと区別: スネアは高域ノイズ成分が多い
-          if(se>ke*0.8 && se>t10*0.9 && se>t12*0.9) addEvent('snare', t, se);
+          if(se>ke*0.7 && se>t10*0.8 && se>t12*0.8) addEvent('snare', t, se);
         });
 
-        // ハイハット: 高域が支配的
+        // ハイハット: 超高域が支配的
         hhPeaks.forEach(function(fi){
           var t=fi*HOP/sr;
-          var ke=kickE[fi], se=snareE[fi], he=hhE[fi];
-          if(he>ke && he>se*0.5) addEvent('closed_hihat', t, he);
+          var ke=kickE[fi], se=snareE[fi], he=hhE[fi], ce=crashE[fi];
+          // クラッシュとの区別: ハイハットは単発・短い
+          if(he>ke && he>se*0.5 && he>ce*1.5) addEvent('closed_hihat', t, he);
         });
 
-        // Tom 10" (高めのタム): 250-500Hz が支配的でキック・スネアより大きい
+        // クラッシュ: 2000-8000Hz の広帯域エネルギーが突出
+        crashPeaks.forEach(function(fi){
+          var t=fi*HOP/sr;
+          var ke=kickE[fi], se=snareE[fi], he=hhE[fi], ce=crashE[fi];
+          // クラッシュはハイハットより低域寄りの広帯域
+          // かつハイハットより持続が長い（前後フレームもエネルギーがある）
+          var prevCe = fi>0 ? crashE[fi-1] : 0;
+          var nextCe = fi<crashE.length-1 ? crashE[fi+1] : 0;
+          var sustained = (prevCe+nextCe)/2 > ce*0.3; // 持続性チェック
+          if(ce>ke*1.5 && ce>se*1.0 && sustained){
+            addEvent('crash', t, ce);
+          }
+        });
+
+        // Tom 10" (高め): 280-550Hz が支配的
         t10Peaks.forEach(function(fi){
           var t=fi*HOP/sr;
           var ke=kickE[fi], se=snareE[fi], he=hhE[fi];
           var t10=t10E[fi], t12=t12E[fi], t16=t16E[fi];
-          // キック・スネアより小さく、Tom帯域が最大
-          if(t10>ke*1.3 && t10>se*1.0 && t10>t12*1.1 && t10>t16*1.2 && t10>he*2.0){
+          if(t10>ke*1.5 && t10>se*1.0 && t10>t12*1.1 && t10>t16*1.3 && t10>he*2.0){
             addEvent('tom10', t, t10);
           }
         });
 
-        // Tom 12" (中間タム): 150-350Hz が支配的
+        // Tom 12" (中間): 180-380Hz が支配的
         t12Peaks.forEach(function(fi){
           var t=fi*HOP/sr;
           var ke=kickE[fi], se=snareE[fi];
           var t10=t10E[fi], t12=t12E[fi], t16=t16E[fi];
-          if(t12>ke*1.1 && t12>se*0.9 && t12>t10*1.1 && t12>t16*1.1){
+          if(t12>ke*1.2 && t12>se*0.9 && t12>t10*1.1 && t12>t16*1.2){
             addEvent('tom12', t, t12);
           }
         });
 
-        // Floor Tom (16"): 80-200Hz、キックに近いが少し高め
+        // Floor Tom: 120-280Hz（キックの40-120Hzより上）
         t16Peaks.forEach(function(fi){
           var t=fi*HOP/sr;
-          var ke=kickE[fi], se=snareE[fi];
+          var ke=kickE[fi], kf=kickFE[fi], se=snareE[fi];
           var t10=t10E[fi], t12=t12E[fi], t16=t16E[fi];
-          // キックより高域寄り、スネアより低域
-          if(t16>ke*0.9 && t16>se*1.0 && t16>t10*1.2 && t16>t12*1.1){
+          // キックとの区別: Floor Tomは超低域(ke)より低域全体(kf)に
+          // エネルギーが分散している（kickRatioが低い）
+          var kickRatio = kf>0 ? ke/kf : 0;
+          if(t16>se*0.8 && t16>t10*1.1 && t16>t12*1.0 && kickRatio<0.5){
             addEvent('tom16', t, t16);
           }
         });
@@ -1948,10 +1985,11 @@ function runAnalysis(file){
         var nK=state.pattern.events.filter(function(e){return e.track==='kick';}).length;
         var nS=state.pattern.events.filter(function(e){return e.track==='snare';}).length;
         var nH=state.pattern.events.filter(function(e){return e.track==='closed_hihat';}).length;
+        var nC=state.pattern.events.filter(function(e){return e.track==='crash';}).length;
         var nT10=state.pattern.events.filter(function(e){return e.track==='tom10';}).length;
         var nT12=state.pattern.events.filter(function(e){return e.track==='tom12';}).length;
         var nT16=state.pattern.events.filter(function(e){return e.track==='tom16';}).length;
-        resultMsg.textContent='BPM:'+bpm+' K:'+nK+' S:'+nS+' HH:'+nH+' T10:'+nT10+' T12:'+nT12+' FT:'+nT16+' (計'+state.pattern.events.length+')';
+        resultMsg.textContent='BPM:'+bpm+' K:'+nK+' S:'+nS+' HH:'+nH+' CR:'+nC+' T10:'+nT10+' T12:'+nT12+' FT:'+nT16+' (計'+state.pattern.events.length+')';
         resultMsg.style.display='block';
 
         renderAll();
