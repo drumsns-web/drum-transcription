@@ -1117,7 +1117,6 @@ function playTone(time, f1, f2, dur, vol, wave='sine', reverb=0, attack=0.001){
 // 各パートにプリセットを個別設定できる
 // ============================================================
 // パートごとの選択中プリセット
-var _trackPreset = {};  // { trackId: presetId }
 
 // プリセット定義: 各楽器の発音パラメータセット
 // tone(time, f1, f2, dur, vol, wave, reverb, attack)
@@ -1203,12 +1202,14 @@ function getPresetForTrack(trackId){
 function playTrackAt(trackId, time, velocityScale=1){
   const tr = TRACKS.find(t=>t.id===trackId);
   if(!tr) return;
-  const v = Math.max(0.05, Math.min(1.2, velocityScale));
+  const fx = _FX[trackId]||{};
+  const volScale = fx.volume !== undefined ? fx.volume/100 : 1.0;
+  const v = Math.max(0.05, Math.min(1.5, velocityScale * volScale));
   const preset = getPresetForTrack(trackId);
   const fn = preset[trackId];
-  if(fn){ fn(time, v); return; }
-  // fallback\uff08\u672a\u5b9a\u7fa9\u697d\u5668\uff09
-  playNoise(time, 0.05, 1000, v*0.2, 0, 0.04);
+  if(fn){ fn(time, v); }
+  else { playNoise(time, 0.05, 1000, v*0.2, 0, 0.04); }
+  _applyFXPost(trackId, time);
 }
 function fireWithOrn(trackId, step, time, baseVel){
   // カスタムサンプル（手動読込）があれば最優先
@@ -1538,6 +1539,7 @@ document.addEventListener('click',function(e){
 });
 // \u30b5\u30f3\u30d7\u30e9\u30fc
 var _S={},_R={mr:null,chunks:[],track:null};
+var _FX = {}; // パート別エフェクト設定
 function openSampler(){
   var body=document.getElementById('samplerBody');
   body.innerHTML='';
@@ -1908,6 +1910,10 @@ function setActiveKit(kitName){
 function setTrackSample(tid, fname){
   if(fname) _trackSample[tid] = fname;
   else delete _trackSample[tid];
+}
+function setFX(tid, key, val){
+  if(!_FX[tid]) _FX[tid]={};
+  _FX[tid][key]=val;
 }
 
 function updateKitSelector(){
