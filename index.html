@@ -1720,30 +1720,44 @@ function runAnalysis(file){
         // スネアらしさ: 500-4000Hz にもエネルギー
         // ハイハット帯域: 5000Hz以上 → bin 520+
 
-        // キック: 40-120Hz（超低域、基音が非常に低い）
+        // ── Rock Kit実測値ベースの周波数帯域設定 ──────────────
+        // Kick:      peak=47Hz,  40-80Hz が50%, 80-120Hz が30%
+        // Floor Tom: peak=82Hz,  80-120Hz が40%, 40-80Hz が33%
+        // Rack Tom:  peak=141Hz, 120-200Hz が68%
+        // Snare:     peak=223Hz, 200-350Hz が59%
+        // HiHat:     peak=387Hz, 350-600Hz が31-54%
+        // Crash:     peak=4605Hz,2k-5k が18%, 5k-10k が16%
+
+        // キック: 40-80Hz（超低域、ピーク47Hz）
         var kickLo  = Math.round(40  * FS / sr);
-        var kickHi  = Math.round(120 * FS / sr);
-        // キック補助: 40-200Hz 全体エネルギー（分類用）
+        var kickHi  = Math.round(80  * FS / sr);
+        // キック全域: 40-200Hz（Floor Tomとの比較用）
         var kickFLo = Math.round(40  * FS / sr);
         var kickFHi = Math.round(200 * FS / sr);
-        // スネア
-        var snareLo = Math.round(150 * FS / sr);
-        var snareHi = Math.round(500 * FS / sr);
-        var snHiLo  = Math.round(500 * FS / sr);
-        var snHiHi  = Math.round(4000* FS / sr);
-        // クラッシュ: 2000-8000Hz（広帯域シンバル、持続が長い）
+        // Floor Tom: 80-130Hz（ピーク82Hz、キックより少し上）
+        var t16Lo   = Math.round(75  * FS / sr);
+        var t16Hi   = Math.round(130 * FS / sr);
+        // Rack Tom: 120-220Hz（ピーク141Hz）
+        var t12Lo   = Math.round(120 * FS / sr);
+        var t12Hi   = Math.round(220 * FS / sr);
+        // Tom10（高め）: 220-400Hz
+        var t10Lo   = Math.round(220 * FS / sr);
+        var t10Hi   = Math.round(400 * FS / sr);
+        // スネア: 200-400Hz（ピーク223Hz）
+        var snareLo = Math.round(200 * FS / sr);
+        var snareHi = Math.round(400 * FS / sr);
+        // スネア高域成分: 400-3000Hz（スネアらしいシャー音）
+        var snHiLo  = Math.round(400 * FS / sr);
+        var snHiHi  = Math.round(3000* FS / sr);
+        // ハイハット/ライド: 350-800Hz（ピーク387-492Hz）
+        var hhLo    = Math.round(350 * FS / sr);
+        var hhHi    = Math.round(800 * FS / sr);
+        // クラッシュ: 2000-10000Hz（ピーク4605Hz）
         var crashLo = Math.round(2000 * FS / sr);
-        var crashHi = Math.min(Math.round(8000*FS/sr), FS/2-1);
-        // ハイハット
-        var hhLo    = Math.round(5000* FS / sr);
-        var hhHi    = Math.min(Math.round(16000*FS/sr), FS/2-1);
-        // タム帯域
-        var t10Lo   = Math.round(280 * FS / sr);  // Tom10": 280-550Hz（高め）
-        var t10Hi   = Math.round(550 * FS / sr);
-        var t12Lo   = Math.round(180 * FS / sr);  // Tom12": 180-380Hz
-        var t12Hi   = Math.round(380 * FS / sr);
-        var t16Lo   = Math.round(120 * FS / sr);  // Floor Tom: 120-280Hz（キックより上）
-        var t16Hi   = Math.round(280 * FS / sr);
+        var crashHi = Math.min(Math.round(10000*FS/sr), FS/2-1);
+        // クラッシュ高域: 5000-12000Hz（ハイハットとの区別用）
+        var crashHiLo = Math.round(5000 * FS / sr);
+        var crashHiHi = Math.min(Math.round(12000*FS/sr), FS/2-1);
 
         function bandEnergy(re, im, lo, hi){
           var e=0;
@@ -1786,23 +1800,24 @@ function runAnalysis(file){
           var re=new Float32Array(FS), im=new Float32Array(FS);
           for(var k=0;k<FS;k++) re[k]=mono[pos+k]*hann[k];
           fft(re, im);
-          var ke=bandEnergy(re,im,kickLo,kickHi);     // 超低域（キック基音）
-          var kf=bandEnergy(re,im,kickFLo,kickFHi); // 低域全体
-          var se=bandEnergy(re,im,snareLo,snareHi);
-          var sh=bandEnergy(re,im,snHiLo,snHiHi);
-          var he=bandEnergy(re,im,hhLo,hhHi);
-          var ce=bandEnergy(re,im,crashLo,crashHi); // クラッシュ帯域
+          var ke=bandEnergy(re,im,kickLo,kickHi);      // 40-80Hz キック超低域
+          var kf=bandEnergy(re,im,kickFLo,kickFHi);  // 40-200Hz キック全域
+          var se=bandEnergy(re,im,snareLo,snareHi);  // 200-400Hz スネア
+          var sh=bandEnergy(re,im,snHiLo,snHiHi);    // 400-3kHz スネア高域
+          var he=bandEnergy(re,im,hhLo,hhHi);         // 350-800Hz ハイハット
+          var ce=bandEnergy(re,im,crashLo,crashHi);   // 2k-10kHz クラッシュ
+          var ch=bandEnergy(re,im,crashHiLo,crashHiHi); // 5k-12kHz クラッシュ高域
           var rms=0; for(var k2=0;k2<FS;k2++) rms+=mono[pos+k2]*mono[pos+k2];
           rms=Math.sqrt(rms/FS);
-          kickE.push(ke);   // 超低域エネルギー
-          snareE.push(se+sh*0.5);
+          kickE.push(ke);
+          kickFE.push(kf);
+          snareE.push(se + sh*0.3);
           hhE.push(he);
-          crashE.push(ce);
+          crashE.push(ce + ch*0.5);  // 高域も加重
           totalE.push(rms);
           t10E.push(bandEnergy(re,im,t10Lo,t10Hi));
           t12E.push(bandEnergy(re,im,t12Lo,t12Hi));
           t16E.push(bandEnergy(re,im,t16Lo,t16Hi));
-          kickFE.push(kf);  // 低域全体（タム区別用）
         }
 
         progBar.style.width='50%';
@@ -1900,83 +1915,95 @@ function runAnalysis(file){
           state.pattern.events.push({track:track,step:step,velocity:vel});
         }
 
-        // ── 分類ロジック ────────────────────────────────────
-        // キック: 超低域（40-120Hz）が最も支配的
-        // Floor Tomとの区別: キックは超低域>>低域全体比が高い
+        // ── 分類ロジック（Rock Kit実測値ベース）────────────
+        // Kick(40-80Hz集中) vs FloorTom(80-130Hz集中) vs RackTom(120-220Hz集中)
+
+        // キック: 40-80Hz帯域ピーク
+        // 判定: ke(40-80Hz)がkf(40-200Hz)の45%以上 → 超低域集中
         kickPeaks.forEach(function(fi){
           var t=fi*HOP/sr;
-          var ke=kickE[fi];     // 超低域
-          var kf=kickFE[fi];    // 低域全体
+          var ke=kickE[fi], kf=kickFE[fi];
           var se=snareE[fi], he=hhE[fi];
           var t16=t16E[fi];
-          // キックは超低域が非常に強く、Floor Tomより低い基音を持つ
-          // ke/kf の比率が高い = 超低域中心 = キック
+          // 超低域比率: Kick=50%, FloorTom=33%
           var kickRatio = kf>0 ? ke/kf : 0;
-          if(ke>se*1.0 && ke>he*1.5 && kickRatio>0.55){
-            addEvent('kick', t, ke);
+          if(kickRatio > 0.42 && ke > se*0.5){
+            addEvent('kick', t, kf); // velocityはkf基準
           }
         });
 
-        // スネア: 中高域ノイズが支配的
+        // スネア: 200-400Hzピーク
         snarePeaks.forEach(function(fi){
           var t=fi*HOP/sr;
-          var ke=kickE[fi], se=snareE[fi], he=hhE[fi];
-          var t10=t10E[fi], t12=t12E[fi];
-          if(se>ke*0.7 && se>t10*0.8 && se>t12*0.8) addEvent('snare', t, se);
+          var ke=kickE[fi], kf=kickFE[fi], se=snareE[fi];
+          var t12=t12E[fi], t10=t10E[fi];
+          // スネアはキック超低域が少なく、中域が支配的
+          if(se > kf*0.3 && se > t12*0.8){
+            addEvent('snare', t, se);
+          }
         });
 
-        // ハイハット: 超高域が支配的
+        // ハイハット vs クラッシュ: 350-800HzピークをhhPeaksで検出
+        // Rock Kit実測: HiHat peak=387-492Hz, Crash peak=4605Hz
+        // 同じhhPeaksでも crashE(2k-10k) が大きければクラッシュ
         hhPeaks.forEach(function(fi){
           var t=fi*HOP/sr;
-          var ke=kickE[fi], se=snareE[fi], he=hhE[fi], ce=crashE[fi];
-          // クラッシュとの区別: ハイハットは単発・短い
-          if(he>ke && he>se*0.5 && he>ce*1.5) addEvent('closed_hihat', t, he);
+          var he=hhE[fi], ce=crashE[fi], ke=kickE[fi];
+          // クラッシュはcrash帯域(2k-10k)がhh帯域(350-800Hz)の2倍以上
+          if(ce > he*2.0){
+            // クラッシュ
+            addEvent('crash', t, ce);
+          } else {
+            // ハイハット
+            addEvent('closed_hihat', t, he);
+          }
         });
 
-        // クラッシュ: 2000-8000Hz の広帯域エネルギーが突出
+        // クラッシュ専用ピーク: crashPeaks由来（2k-10kHz帯域）
         crashPeaks.forEach(function(fi){
           var t=fi*HOP/sr;
-          var ke=kickE[fi], se=snareE[fi], he=hhE[fi], ce=crashE[fi];
-          // クラッシュはハイハットより低域寄りの広帯域
-          // かつハイハットより持続が長い（前後フレームもエネルギーがある）
-          var prevCe = fi>0 ? crashE[fi-1] : 0;
-          var nextCe = fi<crashE.length-1 ? crashE[fi+1] : 0;
-          var sustained = (prevCe+nextCe)/2 > ce*0.3; // 持続性チェック
-          if(ce>ke*1.5 && ce>se*1.0 && sustained){
+          var ce=crashE[fi], he=hhE[fi], ke=kickE[fi], kf=kickFE[fi];
+          // 持続性: クラッシュは次の4フレームでもエネルギーが続く
+          var after=0;
+          for(var df=1;df<=4;df++) if(fi+df<crashE.length) after+=crashE[fi+df];
+          after/=4;
+          if(after > ce*0.4 && ce > kf*0.3){
             addEvent('crash', t, ce);
           }
         });
 
-        // Tom 10" (高め): 280-550Hz が支配的
-        t10Peaks.forEach(function(fi){
-          var t=fi*HOP/sr;
-          var ke=kickE[fi], se=snareE[fi], he=hhE[fi];
-          var t10=t10E[fi], t12=t12E[fi], t16=t16E[fi];
-          if(t10>ke*1.5 && t10>se*1.0 && t10>t12*1.1 && t10>t16*1.3 && t10>he*2.0){
-            addEvent('tom10', t, t10);
-          }
-        });
-
-        // Tom 12" (中間): 180-380Hz が支配的
+        // Rack Tom 12": 120-220Hz（ピーク141Hz）
+        // 判定: t12帯域がキック超低域より大きく、Floor Tomより高域
         t12Peaks.forEach(function(fi){
           var t=fi*HOP/sr;
-          var ke=kickE[fi], se=snareE[fi];
-          var t10=t10E[fi], t12=t12E[fi], t16=t16E[fi];
-          if(t12>ke*1.2 && t12>se*0.9 && t12>t10*1.1 && t12>t16*1.2){
+          var ke=kickE[fi], kf=kickFE[fi], se=snareE[fi];
+          var t12=t12E[fi], t16=t16E[fi], t10=t10E[fi];
+          if(t12 > ke*2.0 && t12 > se*0.5 && t12 > t16*0.8){
             addEvent('tom12', t, t12);
           }
         });
 
-        // Floor Tom: 120-280Hz（キックの40-120Hzより上）
+        // Floor Tom 16": 75-130Hz（ピーク82Hz）
+        // 判定: t16帯域がキック超低域より大きい（kickRatioが低い）
         t16Peaks.forEach(function(fi){
           var t=fi*HOP/sr;
           var ke=kickE[fi], kf=kickFE[fi], se=snareE[fi];
-          var t10=t10E[fi], t12=t12E[fi], t16=t16E[fi];
-          // キックとの区別: Floor Tomは超低域(ke)より低域全体(kf)に
-          // エネルギーが分散している（kickRatioが低い）
+          var t16=t16E[fi], t12=t12E[fi];
+          // Floor Tomの80-130Hz比率はKickの40-80Hz比率より高い
           var kickRatio = kf>0 ? ke/kf : 0;
-          if(t16>se*0.8 && t16>t10*1.1 && t16>t12*1.0 && kickRatio<0.5){
+          // kickRatio < 0.42 = Floor Tom (Kick=0.50, FloorTom=0.33)
+          if(kickRatio < 0.42 && t16 > se*0.3 && t16 > t12*0.7){
             addEvent('tom16', t, t16);
+          }
+        });
+
+        // Tom 10": 220-400Hz（高めのタム）
+        t10Peaks.forEach(function(fi){
+          var t=fi*HOP/sr;
+          var ke=kickE[fi], se=snareE[fi];
+          var t10=t10E[fi], t12=t12E[fi], t16=t16E[fi];
+          if(t10 > ke*3.0 && t10 > se*0.5 && t10 > t12*0.9){
+            addEvent('tom10', t, t10);
           }
         });
 
