@@ -130,6 +130,9 @@
     /* SVG要素に直接fill/stroke属性がある場合CSSで上書きできないためJSで対応 */
     /* ただしCSSカスタムプロパティでフォールバック */
     .score-scroll svg { color: #000; }
+    /* 休符を非表示 */
+    .score-scroll svg [class*="rest"],
+    .score-scroll svg [class*="Rest"] { display: none !important; }
     /* AlphaTabが使うグレー色を黒に上書き（属性セレクタ） */
     .score-scroll svg [fill="#cdd8e1"],
     .score-scroll svg [fill="#CDD8E1"],
@@ -722,6 +725,7 @@ function buildAlphaTex(){
 
   var lines=[];
   lines.push(BS+'hideDynamics');
+  lines.push(BS+'hideRestBeats');
   lines.push(BS+'track "Drums"');
   lines.push(BS+'instrument percussion');
   lines.push(BS+'tempo '+bpm);
@@ -887,7 +891,16 @@ function renderScore(){
          &&!s.match(/^#[fF]{3}$/)&&!s.match(/^#[fF]{6}$/)){
         el.setAttribute('stroke','#000');
       }
+      // 休符を非表示: classにrest含む要素 or data-beat-typeがrest
       if(cls.indexOf('rest')!==-1) el.style.display='none';
+      // AlphaTab v1.x: 休符グループはdata-group-id等に"rest"を含む場合がある
+      var groupId=(el.getAttribute('data-group-id')||'').toLowerCase();
+      if(groupId.indexOf('rest')!==-1) el.style.display='none';
+    });
+    // SVG内のテキスト要素で休符記号(𝄼𝄽𝄾𝄿)を非表示
+    container.querySelectorAll('svg text').forEach(function(el){
+      var txt=el.textContent||'';
+      if(/[\u{1D13C}-\u{1D13F}]/u.test(txt)) el.style.display='none';
     });
   }
 
