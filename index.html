@@ -994,6 +994,70 @@ function buildReverbMix(amount=0){
   if(!ctx || amount<=0) return null;
   return getReverbNode(ctx, amount);
 }
+
+var _grCache = {};
+
+function buildFXChain(trackId, baseGain){
+  const ctx = state.audioContext;
+  if(!ctx){ return null; }
+  const fx = _FX[trackId]||{};
+  const volScale = fx.volume !== undefined ? fx.volume/100 : 1.0;
+  const gainNode = ctx.createGain();
+  gainNode.gain.value = Math.min(1.5, baseGain * volScale);
+  if(fx.delay > 0){
+    const dlyTime = fx.delayTime || 0.25;
+    const dly = ctx.createDelay(1.0);
+    dly.delayTime.value = dlyTime;
+    const dlyGain = ctx.createGain();
+    dlyGain.gain.value = fx.delay / 100 * 0.6;
+    const dlyFb = ctx.createGain();
+    dlyFb.gain.value = 0.3;
+    gainNode.connect(dly);
+    dly.connect(dlyGain).connect(ctx.destination);
+    dly.connect(dlyFb).connect(dly);
+  }
+  if(fx.gateReverb > 0){
+    const grBuf = _grCache[ctx] || (()=>{
+      const len = Math.floor(ctx.sampleRate * 0.15);
+      const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+      for(let ch=0;ch<2;ch++){
+        const d=buf.getChannelData(ch);
+        for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,1.5);
+      }
+      _grCache[ctx]=buf; return buf;
+    })();
+    const grConv = ctx.createConvolver();
+    grConv.buffer = grBuf;
+    const grGain = ctx.createGain();
+    grGain.gain.value = fx.gateReverb / 100 * 0.7;
+    gainNode.connect(grConv).connect(grGain).connect(ctx.destination);
+  }
+  if(fx.reverb > 0){
+    const rv = getReverbNode(ctx, fx.reverb);
+    if(rv) gainNode.connect(rv);
+  }
+  gainNode.connect(ctx.destination);
+  return gainNode;
+}
+
+function _applyFXPost(trackId, time){
+  const ctx = state.audioContext;
+  if(!ctx) return;
+  const fx = _FX[trackId]||{};
+  if(fx.delay > 0){
+    const dlyTime = fx.delayTime || 0.25;
+    const nsrc = ctx.createBufferSource();
+    nsrc.buffer = getNoiseBuffer(ctx);
+    nsrc.loop = true;
+    const dlyGain = ctx.createGain();
+    dlyGain.gain.setValueAtTime(0.0001, time + dlyTime);
+    dlyGain.gain.linearRampToValueAtTime(fx.delay/100*0.15, time + dlyTime + 0.003);
+    dlyGain.gain.exponentialRampToValueAtTime(0.0001, time + dlyTime + 0.25);
+    nsrc.connect(dlyGain).connect(ctx.destination);
+    nsrc.start(time + dlyTime);
+    nsrc.stop(time + dlyTime + 0.3);
+  }
+}
 // ノイズバッファをキャッシュ（毎回生成するとプツプツノイズが出るため）
 var _noiseBuffer = null;
 function getNoiseBuffer(ctx) {
@@ -1147,16 +1211,21 @@ function playTrackAt(trackId, time, velocityScale=1){
   playNoise(time, 0.05, 1000, v*0.2, 0, 0.04);
 }
 function fireWithOrn(trackId, step, time, baseVel){
-  // \u30ab\u30b9\u30bf\u30e0\u30b5\u30f3\u30d7\u30eb\u304c\u3042\u308c\u3070\u512a\u5148\u518d\u751f
+  // カスタムサンプル（手動読込）があれば最優先
   var _s=_S&&_S[trackId];
   if(_s&&_s.buffer&&state.audioContext){
     var _src=state.audioContext.createBufferSource();
-    var _g=state.audioContext.createGain();
+    var _fxGain = buildFXChain(trackId, Math.min(1.2,Math.max(0.05,baseVel)));
     _src.buffer=_s.buffer;
-    _g.gain.setValueAtTime(Math.min(1.2,Math.max(0.05,baseVel)),time);
-    _src.connect(_g).connect(state.audioContext.destination);
+    _src.connect(_fxGain);
     _src.start(time);
     return;
+  }
+  // パート個別にシンセプリセットが指定されていればZIPより優先
+  var hasTrackPreset = !!_trackPreset[trackId];
+  // ZIPキット（マルチサンプル）: シンセプリセットが設定されていない場合のみ使用
+  if(!hasTrackPreset && _MS[trackId] && _MS[trackId].length > 0){
+    if(playMultiSample(trackId, time, baseVel)) return;
   }
   const orn = getOrn(trackId, step);
   const grace = 0.035;
