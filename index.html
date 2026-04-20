@@ -1657,6 +1657,163 @@ function togRec(tid){
   });
 }
 document.getElementById('samplerBtn').addEventListener('click',openSampler);
+document.getElementById('analyzeBtn').addEventListener('click', function(){
+  document.getElementById('analyzeModal').style.display='flex';
+});
+
+// 解析モーダルのファイル選択
+document.getElementById('analyzeFileInput').addEventListener('change', function(e){
+  var f = e.target.files[0];
+  if(!f) return;
+  document.getElementById('analyzeFileName').textContent = f.name;
+  document.getElementById('analyzeStartBtn').disabled = false;
+  document.getElementById('analyzeStartBtn')._file = f;
+});
+
+document.getElementById('analyzeStartBtn').addEventListener('click', function(){
+  var f = this._file;
+  if(!f) return;
+  runAnalysis(f);
+});
+
+function runAnalysis(file){
+  var progWrap = document.getElementById('analyzeProgWrap');
+  var progBar  = document.getElementById('analyzeProgBar');
+  var progLabel= document.getElementById('analyzeProgLabel');
+  var resultMsg= document.getElementById('analyzeResultMsg');
+  var bpmHint  = parseFloat(document.getElementById('analyzeBpmHint').value)||0;
+  var barsHint = parseInt(document.getElementById('analyzeBarsHint').value)||4;
+
+  progWrap.style.display='block';
+  progBar.style.width='5%';
+  progLabel.textContent='読み込み中...';
+  resultMsg.style.display='none';
+
+  ensureAudio().then(function(){
+    file.arrayBuffer().then(function(ab){
+      state.audioContext.decodeAudioData(ab, function(buf){
+        progBar.style.width='20%';
+        progLabel.textContent='解析中...';
+
+        // モノラルに変換
+        var sr = buf.sampleRate;
+        var len = buf.length;
+        var mono = new Float32Array(len);
+        for(var ch=0;ch<buf.numberOfChannels;ch++){
+          var d = buf.getChannelData(ch);
+          for(var i=0;i<len;i++) mono[i] += d[i]/buf.numberOfChannels;
+        }
+
+        // スペクトルフラックス法でオンセット検出
+        var fs = 512, hop = 256;
+        var onsets = [];
+        var prev = new Float32Array(fs/2+1);
+        for(var pos=0; pos+fs<len; pos+=hop){
+          var frame = mono.slice(pos, pos+fs);
+          // 簡易FFT（RMSとスペクトル変化量）
+          var rms=0;
+          for(var k=0;k<fs;k++) rms+=frame[k]*frame[k];
+          rms=Math.sqrt(rms/fs);
+          // スペクトルフラックス（前フレームとのRMS差分）
+          var flux=Math.max(0, rms - (pos>0?prev[0]:0));
+          prev[0]=rms;
+          onsets.push({time: pos/sr, flux: flux, rms: rms});
+        }
+
+        progBar.style.width='50%';
+
+        // ピーク検出（局所最大値）
+        var peaks=[];
+        var win=8;
+        for(var j=win;j<onsets.length-win;j++){
+          var cur=onsets[j].flux;
+          var isMax=true;
+          for(var k2=-win;k2<=win;k2++){
+            if(k2!==0 && onsets[j+k2].flux>=cur){ isMax=false; break; }
+          }
+          if(isMax && cur>0.005) peaks.push(onsets[j]);
+        }
+
+        progBar.style.width='70%';
+
+        // BPM推定
+        var bpm = bpmHint;
+        if(!bpm && peaks.length>2){
+          var iois=[];
+          for(var p=1;p<Math.min(peaks.length,32);p++){
+            var ioi=peaks[p].time-peaks[p-1].time;
+            if(ioi>0.1&&ioi<2.0) iois.push(ioi);
+          }
+          if(iois.length>0){
+            iois.sort(function(a,b){return a-b;});
+            var medIOI=iois[Math.floor(iois.length/2)];
+            bpm=Math.round(60/medIOI);
+            // 妥当な範囲に収める
+            while(bpm<60) bpm*=2;
+            while(bpm>200) bpm/=2;
+            bpm=Math.round(bpm);
+          }
+        }
+        if(!bpm) bpm=120;
+
+        progBar.style.width='85%';
+
+        // グリッドにスナップ
+        var spbVal=spb();
+        var beatDur=60/bpm;
+        var barDur=beatDur*4;
+        var totalBars=barsHint;
+        var totalSteps=totalBars*4*spbVal;
+
+        // 既存パターンをクリア
+        state.pattern.events=[];
+        state.pattern.bpm=bpm;
+        state.pattern.measures=totalBars;
+
+        // ピークをキック/スネア/ハイハットに分類してスナップ
+        peaks.forEach(function(pk){
+          if(pk.time>=barDur*totalBars) return;
+          var stepF=pk.time/beatDur*spbVal;
+          var step=Math.round(stepF);
+          if(step>=totalSteps) return;
+
+          var rms=pk.rms;
+          // 簡易分類: RMSが高い→キック、中→スネア、低→ハイハット
+          var track;
+          var beatPos=(step%spbVal)/spbVal; // 拍内の位置
+          if(rms>0.08){
+            // 強い=キックかスネア（拍頭=キック、裏拍=スネア）
+            var beat=Math.floor(step/spbVal)%4;
+            track=(beat===0||beat===2)?'kick':'snare';
+          } else if(rms>0.02){
+            track='snare';
+          } else {
+            track='closed_hihat';
+          }
+
+          // 既存ステップと重複しない
+          var exists=state.pattern.events.some(function(ev){
+            return ev.track===track&&ev.step===step;
+          });
+          if(!exists){
+            state.pattern.events.push({track:track,step:step,velocity:Math.round(rms*800+40)});
+          }
+        });
+
+        progBar.style.width='100%';
+        progLabel.textContent='完了';
+        resultMsg.textContent='BPM: '+bpm+' / '+peaks.length+'個のオンセット検出 / '+state.pattern.events.length+'音符';
+        resultMsg.style.display='block';
+
+        renderAll();
+        setTimeout(function(){
+          document.getElementById('analyzeModal').style.display='none';
+        }, 1500);
+
+      }, function(e){ progLabel.textContent='デコードエラー: '+e; });
+    });
+  });
+}
 // fireWithOrn wrap for sample playback
 // sample playback handled inside fireWithOrn
 
