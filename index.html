@@ -2342,6 +2342,8 @@ function updateKitSelector(){
       sel.appendChild(opt);
     }
   });
+  // 保存済みのアクティブキットをセレクタに反映
+  if(_activeKit) sel.value = _activeKit;
 }
 
 document.getElementById('kitZipInput').addEventListener('change', function(e){
