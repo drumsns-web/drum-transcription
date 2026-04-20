@@ -2302,11 +2302,18 @@ function setActiveKit(kitName){
   _activeKit = kitName || null;
   var sel = document.getElementById('kitSelector');
   if(sel) sel.value = kitName;
+  try{
+    localStorage.setItem('drum-active-kit', kitName||'rock');
+  }catch(e){}
 }
 
 function setTrackSample(tid, fname){
   if(fname) _trackSample[tid] = fname;
   else delete _trackSample[tid];
+  // localStorageに保存
+  try{
+    localStorage.setItem('drum-track-samples', JSON.stringify(_trackSample));
+  }catch(e){}
 }
 function setFX(tid, key, val){
   if(!_FX[tid]) _FX[tid]={};
@@ -2377,6 +2384,18 @@ async function loadBuiltinKits(){
 
 renderAll();
 savePattern();
+
+// localStorageからキット設定を復元
+try{
+  var savedKit = localStorage.getItem('drum-active-kit');
+  if(savedKit){ _activeKit = savedKit; }
+  var savedSamples = localStorage.getItem('drum-track-samples');
+  if(savedSamples){ _trackSample = JSON.parse(savedSamples); }
+  // セレクタの表示を更新
+  var sel = document.getElementById('kitSelector');
+  if(sel && _activeKit) sel.value = _activeKit;
+}catch(e){}
+
 loadBuiltinKits();
 </script>
 </body>
