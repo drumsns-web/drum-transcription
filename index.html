@@ -1692,123 +1692,272 @@ function runAnalysis(file){
   ensureAudio().then(function(){
     file.arrayBuffer().then(function(ab){
       state.audioContext.decodeAudioData(ab, function(buf){
-        progBar.style.width='20%';
-        progLabel.textContent='解析中...';
+        progBar.style.width='15%';
+        progLabel.textContent='周波数解析中...';
 
-        // モノラルに変換
         var sr = buf.sampleRate;
         var len = buf.length;
+
+        // モノラル変換
         var mono = new Float32Array(len);
         for(var ch=0;ch<buf.numberOfChannels;ch++){
           var d = buf.getChannelData(ch);
           for(var i=0;i<len;i++) mono[i] += d[i]/buf.numberOfChannels;
         }
 
-        // スペクトルフラックス法でオンセット検出
-        var fs = 512, hop = 256;
-        var onsets = [];
-        var prev = new Float32Array(fs/2+1);
-        for(var pos=0; pos+fs<len; pos+=hop){
-          var frame = mono.slice(pos, pos+fs);
-          // 簡易FFT（RMSとスペクトル変化量）
-          var rms=0;
-          for(var k=0;k<fs;k++) rms+=frame[k]*frame[k];
-          rms=Math.sqrt(rms/fs);
-          // スペクトルフラックス（前フレームとのRMS差分）
-          var flux=Math.max(0, rms - (pos>0?prev[0]:0));
-          prev[0]=rms;
-          onsets.push({time: pos/sr, flux: flux, rms: rms});
+        // ── 簡易DFT（特定周波数帯のエネルギーを計算）─────────
+        // FFTサイズ1024、hop256
+        var FS = 1024, HOP = 256;
+        var frames = [];
+
+        // ハニング窓
+        var hann = new Float32Array(FS);
+        for(var i=0;i<FS;i++) hann[i] = 0.5*(1-Math.cos(2*Math.PI*i/(FS-1)));
+
+        // 周波数ビン → Hz: bin * sr / FS
+        // キック帯域: 40-180Hz → bin 1-19
+        // スネア帯域: 150-500Hz → bin 16-52 (中域エネルギー)
+        // スネアらしさ: 500-4000Hz にもエネルギー
+        // ハイハット帯域: 5000Hz以上 → bin 520+
+
+        var kickLo  = Math.round(40  * FS / sr);
+        var kickHi  = Math.round(200 * FS / sr);
+        var snareLo = Math.round(150 * FS / sr);
+        var snareHi = Math.round(500 * FS / sr);
+        var snHiLo  = Math.round(500 * FS / sr);
+        var snHiHi  = Math.round(4000* FS / sr);
+        var hhLo    = Math.round(5000* FS / sr);
+        var hhHi    = Math.min(Math.round(16000*FS/sr), FS/2-1);
+        // タム帯域（キックより高く、スネアより低め）
+        var t10Lo   = Math.round(250 * FS / sr);  // Tom10": 250-500Hz
+        var t10Hi   = Math.round(500 * FS / sr);
+        var t12Lo   = Math.round(150 * FS / sr);  // Tom12": 150-350Hz
+        var t12Hi   = Math.round(350 * FS / sr);
+        var t16Lo   = Math.round(80  * FS / sr);  // Floor Tom: 80-200Hz
+        var t16Hi   = Math.round(200 * FS / sr);
+
+        function bandEnergy(re, im, lo, hi){
+          var e=0;
+          for(var b=lo;b<=hi&&b<FS/2;b++) e+=re[b]*re[b]+im[b]*im[b];
+          return Math.sqrt(e/(hi-lo+1));
+        }
+
+        // 簡易FFT (Cooley-Tukey, 2のべき乗)
+        function fft(re, im){
+          var N=re.length;
+          // bit-reversal
+          for(var i=0,j=0;i<N;i++){
+            if(i<j){var t=re[i];re[i]=re[j];re[j]=t;t=im[i];im[i]=im[j];im[j]=t;}
+            var m=N>>1;
+            for(;j&m;m>>=1) j^=m;
+            j^=m;
+          }
+          for(var s=2;s<=N;s<<=1){
+            var half=s>>1;
+            var wR=Math.cos(2*Math.PI/s), wI=-Math.sin(2*Math.PI/s);
+            for(var k=0;k<N;k+=s){
+              var uR=1,uI=0;
+              for(var j2=0;j2<half;j2++){
+                var tR=uR*re[k+j2+half]-uI*im[k+j2+half];
+                var tI=uR*im[k+j2+half]+uI*re[k+j2+half];
+                re[k+j2+half]=re[k+j2]-tR; im[k+j2+half]=im[k+j2]-tI;
+                re[k+j2]+=tR; im[k+j2]+=tI;
+                var nuR=uR*wR-uI*wI; uI=uR*wI+uI*wR; uR=nuR;
+              }
+            }
+          }
+        }
+
+        // フレームごとに周波数帯エネルギーを計算
+        var nFrames = Math.floor((len-FS)/HOP);
+        var kickE=[], snareE=[], hhE=[], totalE=[];
+        var t10E=[], t12E=[], t16E=[];
+        for(var fi=0;fi<nFrames;fi++){
+          var pos=fi*HOP;
+          var re=new Float32Array(FS), im=new Float32Array(FS);
+          for(var k=0;k<FS;k++) re[k]=mono[pos+k]*hann[k];
+          fft(re, im);
+          var ke=bandEnergy(re,im,kickLo,kickHi);
+          var se=bandEnergy(re,im,snareLo,snareHi);
+          var sh=bandEnergy(re,im,snHiLo,snHiHi);
+          var he=bandEnergy(re,im,hhLo,hhHi);
+          var rms=0; for(var k2=0;k2<FS;k2++) rms+=mono[pos+k2]*mono[pos+k2];
+          rms=Math.sqrt(rms/FS);
+          kickE.push(ke);
+          snareE.push(se+sh*0.5);
+          hhE.push(he);
+          totalE.push(rms);
+          t10E.push(bandEnergy(re,im,t10Lo,t10Hi));
+          t12E.push(bandEnergy(re,im,t12Lo,t12Hi));
+          t16E.push(bandEnergy(re,im,t16Lo,t16Hi));
         }
 
         progBar.style.width='50%';
+        progLabel.textContent='オンセット検出中...';
 
-        // ピーク検出（局所最大値）
-        var peaks=[];
-        var win=8;
-        for(var j=win;j<onsets.length-win;j++){
-          var cur=onsets[j].flux;
-          var isMax=true;
-          for(var k2=-win;k2<=win;k2++){
-            if(k2!==0 && onsets[j+k2].flux>=cur){ isMax=false; break; }
+        // スペクトルフラックス（各帯域のエネルギー変化量）
+        function detectOnsets(energy, threshold){
+          var peaks=[];
+          var mean=energy.reduce(function(a,b){return a+b;},0)/energy.length;
+          var flux=[];
+          for(var i=1;i<energy.length;i++){
+            flux.push(Math.max(0, energy[i]-energy[i-1]));
           }
-          if(isMax && cur>0.005) peaks.push(onsets[j]);
+          // 適応的閾値
+          var win=20;
+          for(var i=win;i<flux.length-win;i++){
+            var local=0;
+            for(var j=i-win;j<=i+win;j++) local+=flux[j];
+            local/=(win*2+1);
+            var th=local*threshold+mean*0.001;
+            if(flux[i]>th){
+              var isMax=true;
+              for(var j2=Math.max(0,i-4);j2<=Math.min(flux.length-1,i+4);j2++){
+                if(j2!==i && flux[j2]>=flux[i]){isMax=false;break;}
+              }
+              if(isMax) peaks.push(i+1); // +1でenergyのインデックスに
+            }
+          }
+          return peaks;
         }
+
+        var kickPeaks  = detectOnsets(kickE, 3.5);
+        var snarePeaks = detectOnsets(snareE, 3.0);
+        var hhPeaks    = detectOnsets(hhE, 2.5);
+        var t10Peaks   = detectOnsets(t10E, 3.5);
+        var t12Peaks   = detectOnsets(t12E, 3.5);
+        var t16Peaks   = detectOnsets(t16E, 3.5);
 
         progBar.style.width='70%';
+        progLabel.textContent='BPM推定中...';
 
-        // BPM推定
-        var bpm = bpmHint;
-        if(!bpm && peaks.length>2){
+        // 全オンセットからBPM推定
+        var allTimes=[];
+        kickPeaks.forEach(function(fi){ allTimes.push(fi*HOP/sr); });
+        snarePeaks.forEach(function(fi){ allTimes.push(fi*HOP/sr); });
+        allTimes.sort(function(a,b){return a-b;});
+        // 重複除去（50ms以内は同一とみなす）
+        allTimes=allTimes.filter(function(t,i){
+          return i===0||t-allTimes[i-1]>0.05;
+        });
+
+        var bpm=bpmHint;
+        if(!bpm && allTimes.length>3){
           var iois=[];
-          for(var p=1;p<Math.min(peaks.length,32);p++){
-            var ioi=peaks[p].time-peaks[p-1].time;
-            if(ioi>0.1&&ioi<2.0) iois.push(ioi);
+          for(var p=1;p<Math.min(allTimes.length,64);p++){
+            var ioi=allTimes[p]-allTimes[p-1];
+            if(ioi>0.08&&ioi<2.0) iois.push(ioi);
           }
           if(iois.length>0){
+            // ヒストグラムで最頻IOIを探す
             iois.sort(function(a,b){return a-b;});
-            var medIOI=iois[Math.floor(iois.length/2)];
-            bpm=Math.round(60/medIOI);
-            // 妥当な範囲に収める
+            var bestIOI=iois[Math.floor(iois.length/2)];
+            bpm=Math.round(60/bestIOI);
             while(bpm<60) bpm*=2;
-            while(bpm>200) bpm/=2;
-            bpm=Math.round(bpm);
+            while(bpm>220) bpm/=2;
           }
         }
-        if(!bpm) bpm=120;
+        if(!bpm||bpm<40||bpm>220) bpm=120;
 
         progBar.style.width='85%';
+        progLabel.textContent='グリッドに配置中...';
 
-        // グリッドにスナップ
         var spbVal=spb();
         var beatDur=60/bpm;
         var barDur=beatDur*4;
         var totalBars=barsHint;
         var totalSteps=totalBars*4*spbVal;
+        var tolerance=0.5/spbVal*beatDur; // グリッドのハーフステップ分
 
-        // 既存パターンをクリア
         state.pattern.events=[];
         state.pattern.bpm=bpm;
         state.pattern.measures=totalBars;
 
-        // ピークをキック/スネア/ハイハットに分類してスナップ
-        peaks.forEach(function(pk){
-          if(pk.time>=barDur*totalBars) return;
-          var stepF=pk.time/beatDur*spbVal;
+        function addEvent(track, time, energy){
+          if(time<0||time>=barDur*totalBars) return;
+          var stepF=time/beatDur*spbVal;
           var step=Math.round(stepF);
-          if(step>=totalSteps) return;
-
-          var rms=pk.rms;
-          // 簡易分類: RMSが高い→キック、中→スネア、低→ハイハット
-          var track;
-          var beatPos=(step%spbVal)/spbVal; // 拍内の位置
-          if(rms>0.08){
-            // 強い=キックかスネア（拍頭=キック、裏拍=スネア）
-            var beat=Math.floor(step/spbVal)%4;
-            track=(beat===0||beat===2)?'kick':'snare';
-          } else if(rms>0.02){
-            track='snare';
-          } else {
-            track='closed_hihat';
-          }
-
-          // 既存ステップと重複しない
-          var exists=state.pattern.events.some(function(ev){
+          if(step<0||step>=totalSteps) return;
+          // 同じステップに既に同じトラックがあればスキップ
+          if(state.pattern.events.some(function(ev){
             return ev.track===track&&ev.step===step;
-          });
-          if(!exists){
-            state.pattern.events.push({track:track,step:step,velocity:Math.round(rms*800+40)});
+          })) return;
+          var vel=Math.min(127,Math.round(energy*600+40));
+          state.pattern.events.push({track:track,step:step,velocity:vel});
+        }
+
+        // キック: 低域が他より支配的
+        kickPeaks.forEach(function(fi){
+          var t=fi*HOP/sr;
+          var ke=kickE[fi], se=snareE[fi], he=hhE[fi];
+          var t16=t16E[fi];
+          // キックとFloor Tomは低域が近い → キックは40-80Hz中心、タムは80-200Hz中心
+          if(ke>se*1.2 && ke>he*2.0 && ke>t16*1.3) addEvent('kick', t, ke);
+        });
+
+        // スネア: 中高域が支配的
+        snarePeaks.forEach(function(fi){
+          var t=fi*HOP/sr;
+          var ke=kickE[fi], se=snareE[fi];
+          var t10=t10E[fi], t12=t12E[fi];
+          // タムと区別: スネアは高域ノイズ成分が多い
+          if(se>ke*0.8 && se>t10*0.9 && se>t12*0.9) addEvent('snare', t, se);
+        });
+
+        // ハイハット: 高域が支配的
+        hhPeaks.forEach(function(fi){
+          var t=fi*HOP/sr;
+          var ke=kickE[fi], se=snareE[fi], he=hhE[fi];
+          if(he>ke && he>se*0.5) addEvent('closed_hihat', t, he);
+        });
+
+        // Tom 10" (高めのタム): 250-500Hz が支配的でキック・スネアより大きい
+        t10Peaks.forEach(function(fi){
+          var t=fi*HOP/sr;
+          var ke=kickE[fi], se=snareE[fi], he=hhE[fi];
+          var t10=t10E[fi], t12=t12E[fi], t16=t16E[fi];
+          // キック・スネアより小さく、Tom帯域が最大
+          if(t10>ke*1.3 && t10>se*1.0 && t10>t12*1.1 && t10>t16*1.2 && t10>he*2.0){
+            addEvent('tom10', t, t10);
+          }
+        });
+
+        // Tom 12" (中間タム): 150-350Hz が支配的
+        t12Peaks.forEach(function(fi){
+          var t=fi*HOP/sr;
+          var ke=kickE[fi], se=snareE[fi];
+          var t10=t10E[fi], t12=t12E[fi], t16=t16E[fi];
+          if(t12>ke*1.1 && t12>se*0.9 && t12>t10*1.1 && t12>t16*1.1){
+            addEvent('tom12', t, t12);
+          }
+        });
+
+        // Floor Tom (16"): 80-200Hz、キックに近いが少し高め
+        t16Peaks.forEach(function(fi){
+          var t=fi*HOP/sr;
+          var ke=kickE[fi], se=snareE[fi];
+          var t10=t10E[fi], t12=t12E[fi], t16=t16E[fi];
+          // キックより高域寄り、スネアより低域
+          if(t16>ke*0.9 && t16>se*1.0 && t16>t10*1.2 && t16>t12*1.1){
+            addEvent('tom16', t, t16);
           }
         });
 
         progBar.style.width='100%';
         progLabel.textContent='完了';
-        resultMsg.textContent='BPM: '+bpm+' / '+peaks.length+'個のオンセット検出 / '+state.pattern.events.length+'音符';
+        var nK=state.pattern.events.filter(function(e){return e.track==='kick';}).length;
+        var nS=state.pattern.events.filter(function(e){return e.track==='snare';}).length;
+        var nH=state.pattern.events.filter(function(e){return e.track==='closed_hihat';}).length;
+        var nT10=state.pattern.events.filter(function(e){return e.track==='tom10';}).length;
+        var nT12=state.pattern.events.filter(function(e){return e.track==='tom12';}).length;
+        var nT16=state.pattern.events.filter(function(e){return e.track==='tom16';}).length;
+        resultMsg.textContent='BPM:'+bpm+' K:'+nK+' S:'+nS+' HH:'+nH+' T10:'+nT10+' T12:'+nT12+' FT:'+nT16+' (計'+state.pattern.events.length+')';
         resultMsg.style.display='block';
 
         renderAll();
         setTimeout(function(){
           document.getElementById('analyzeModal').style.display='none';
-        }, 1500);
+        }, 2000);
 
       }, function(e){ progLabel.textContent='デコードエラー: '+e; });
     });
