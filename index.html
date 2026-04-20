@@ -128,11 +128,7 @@
     .score-scroll{overflow:auto; padding:12px; background:#fff; border-radius:12px; margin:8px}
     /* AlphaTab SVGのグレー音符を黒に強制 */
     /* SVG要素に直接fill/stroke属性がある場合CSSで上書きできないためJSで対応 */
-    /* ただしCSSカスタムプロパティでフォールバック */
     .score-scroll svg { color: #000; }
-    /* 休符を非表示 */
-    .score-scroll svg [class*="rest"],
-    .score-scroll svg [class*="Rest"] { display: none !important; }
     /* AlphaTabが使うグレー色を黒に上書き（属性セレクタ） */
     .score-scroll svg [fill="#cdd8e1"],
     .score-scroll svg [fill="#CDD8E1"],
@@ -725,7 +721,6 @@ function buildAlphaTex(){
 
   var lines=[];
   lines.push(BS+'hideDynamics');
-  lines.push(BS+'hideRestBeats');
   lines.push(BS+'track "Drums"');
   lines.push(BS+'instrument percussion');
   lines.push(BS+'tempo '+bpm);
