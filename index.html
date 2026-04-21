@@ -2110,23 +2110,6 @@ var KIT_MAP = {
   'Synth-Tom10-A.wav':         {track:'tom10',        vel:'ff', kit:'synthwave'},
   'Synth-Tom12-A.wav':         {track:'tom12',        vel:'ff', kit:'synthwave'},
   'Synth-Tom16-A.wav':         {track:'tom16',        vel:'ff', kit:'synthwave'},
-  // ── Lo-Fi Kit ─────────────────────────────────────────────
-  'Lofi-Kick-A.wav':           {track:'kick',         vel:'ff', kit:'lofi'},
-  'Lofi-Kick-B.wav':           {track:'kick',         vel:'ff', kit:'lofi'},
-  'Lofi-Kick-C.wav':           {track:'kick',         vel:'pp', kit:'lofi'},
-  'Lofi-Kick-D.wav':           {track:'kick',         vel:'pp', kit:'lofi'},
-  'Lofi-Snare-A.wav':          {track:'snare',        vel:'ff', kit:'lofi'},
-  'Lofi-Snare-B.wav':          {track:'snare',        vel:'ff', kit:'lofi'},
-  'Lofi-Snare-C.wav':          {track:'snare',        vel:'pp', kit:'lofi'},
-  'Lofi-Snare-D.wav':          {track:'snare',        vel:'pp', kit:'lofi'},
-  'Lofi-HH-Closed-A.wav':      {track:'closed_hihat', vel:'ff', kit:'lofi'},
-  'Lofi-HH-Closed-B.wav':      {track:'closed_hihat', vel:'ff', kit:'lofi'},
-  'Lofi-HH-Closed-C.wav':      {track:'closed_hihat', vel:'pp', kit:'lofi'},
-  'Lofi-HH-Closed-D.wav':      {track:'closed_hihat', vel:'pp', kit:'lofi'},
-  'Lofi-HH-Open-A.wav':        {track:'open_hihat',   vel:'ff', kit:'lofi'},
-  'Lofi-HH-Open-B.wav':        {track:'open_hihat',   vel:'pp', kit:'lofi'},
-  'Lofi-Rim-A.wav':            {track:'rimshot',      vel:'ff', kit:'lofi'},
-  'Lofi-Rim-B.wav':            {track:'rimshot',      vel:'pp', kit:'lofi'},
   // ── Phonk Kit ─────────────────────────────────────────────
   'Phonk-Kick-A.wav':          {track:'kick',         vel:'ff', kit:'phonk'},
   'Phonk-Kick-B.wav':          {track:'kick',         vel:'ff', kit:'phonk'},
@@ -2331,7 +2314,7 @@ function updateKitSelector(){
   var kitLabels = {
     rock:'🥁 Rock Kit', slingerland:'🥁 Slingerland',
     boombap:'🎤 Boom Bap', phonk:'⚡ Phonk',
-    lofi:'☕ Lo-Fi', synthwave:'🌆 Synthwave',
+    synthwave:'🌆 Synthwave',
     jazz:'🎷 Jazz Funk', unknown:'📦 その他'
   };
   kits.forEach(function(kit){
@@ -2356,7 +2339,6 @@ var _BUILTIN_KIT_URLS = [
   'slingerland-kit.zip',
   'boombap-kit.zip',
   'phonk-kit.zip',
-  'lofi-kit.zip',
   'synthwave-kit.zip',
   'jazz-kit.zip',
 ];
