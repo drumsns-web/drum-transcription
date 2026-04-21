@@ -424,7 +424,6 @@ const TRACKS = [
   { id:'open_hihat',  label:'Open HH',    short:'OH', accent:'#ffd166', group:'hihat',  scoreY:53,  voice:'upper', midiNote:46, xHead:true },
   { id:'closed_hihat',label:'Closed HH',  short:'CH', accent:'#ffe66d', group:'hihat',  scoreY:60,  voice:'upper', midiNote:42, xHead:true },
   { id:'foot_hihat',  label:'Foot HH',    short:'FH', accent:'#ffcc00', group:'hihat',  scoreY:130, voice:'lower', midiNote:44, xHead:true },
-  { id:'tom10',       label:'Tom 10"',    short:'T1', accent:'#f87171', group:'tom',    scoreY:81,  voice:'lower', midiNote:48 },
   { id:'tom12',       label:'Tom 12"',    short:'T2', accent:'#fb923c', group:'tom',    scoreY:88,  voice:'lower', midiNote:47 },
   { id:'tom16',       label:'Floor Tom',  short:'FT', accent:'#fbbf24', group:'tom',    scoreY:116, voice:'lower', midiNote:43 },
   { id:'snare',       label:'Snare',      short:'S',  accent:'#ff6b35', group:'snare',  scoreY:102, voice:'lower', midiNote:38 },
@@ -671,11 +670,11 @@ function buildAlphaTex(){
     foot_hihat:'PedalHiHathit', crash:'Crashhighhit',
     ride:'Ridemiddle',          cup:'Ridebell',
     rimshot:'Snarerimshot',
-    tom10:'HighFloorTomhit',    tom12:'HighTomhit',
+    tom12:'HighFloorTomhit',
     tom16:'LowFloorTomhit'
   };
   var UPPER={crash:1,open_hihat:1,closed_hihat:1,ride:1,cup:1,
-             snare:1,rimshot:1,tom10:1,tom12:1,tom16:1};
+             snare:1,rimshot:1,tom12:1,tom16:1};
   // foot_hihatはkickと同じ下声部（足で踏む）
   var LOWER={kick:1, foot_hihat:1};
 
