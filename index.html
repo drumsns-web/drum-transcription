@@ -1608,22 +1608,80 @@ function openSampler(){
     if(s){inner+='<button style="'+bs+'" onclick=\'clearSample("'+tr.id+'")\'>&#10005;</button>';}
     inner+='</div>';
 
-    // サンプル選択（ZIPキットのサンプルから選択）
-    var msArr = (_MS[tr.id]||[]).filter(function(s){
-      return !_activeKit || s.kit === _activeKit;
-    });
-    if(msArr.length > 0){
+    // サンプル選択（全キットのサンプルから選択可能）
+    var allSamples = _MS[tr.id] || [];
+    if(allSamples.length > 0){
       var curFixed = _trackSample[tr.id] || '';
+      // 現在のキットのサンプル
+      var curKitSamples = allSamples.filter(function(s){ return s.kit === _activeKit; });
+      // 他のキットのサンプル
+      var otherSamples = allSamples.filter(function(s){ return s.kit !== _activeKit; });
+
       inner+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
       inner+='<span style="font-size:.72rem;color:#9090b8;min-width:52px">サンプル</span>';
       inner+='<select style="flex:1;background:#1e1e3a;color:#fff;border:1px solid rgba(160,160,255,0.3);border-radius:4px;padding:2px 6px;font-size:.72rem" onchange=\'setTrackSample("'+tr.id+'",this.value)\'>';
       inner+='<option value="">🔀 自動(ラウンドロビン)</option>';
-      msArr.forEach(function(smpl){
-        var label = smpl.name.replace(/\.(wav|WAV)$/,'');
-        inner+='<option value="'+smpl.name+'"'+(curFixed===smpl.name?' selected':'')+'>'+label+'</option>';
-      });
+
+      // 現在のキットのサンプル
+      if(curKitSamples.length > 0){
+        var kitLabels2 = {rock:'Rock Kit',slingerland:'Slingerland',boombap:'Boom Bap',
+          phonk:'Phonk',synthwave:'Synthwave',jazz:'Jazz Funk'};
+        inner+='<optgroup label="── '+( kitLabels2[_activeKit]||_activeKit)+' ──">';
+        curKitSamples.forEach(function(smpl){
+          var label = smpl.name.replace(/\.(wav|WAV)$/,'');
+          inner+='<option value="'+smpl.name+'"'+(curFixed===smpl.name?' selected':'')+'>'+label+'</option>';
+        });
+        inner+='</optgroup>';
+      }
+
+      // 他のキットのサンプル（キットごとにグループ化）
+      if(otherSamples.length > 0){
+        var otherKits = [];
+        otherSamples.forEach(function(s){ if(otherKits.indexOf(s.kit)===-1) otherKits.push(s.kit); });
+        var kitLabels3 = {rock:'Rock Kit',slingerland:'Slingerland',boombap:'Boom Bap',
+          phonk:'Phonk',synthwave:'Synthwave',jazz:'Jazz Funk'};
+        otherKits.forEach(function(kit){
+          var grpSamples = otherSamples.filter(function(s){ return s.kit===kit; });
+          inner+='<optgroup label="── '+(kitLabels3[kit]||kit)+' ──">';
+          grpSamples.forEach(function(smpl){
+            var label = smpl.name.replace(/\.(wav|WAV)$/,'');
+            inner+='<option value="'+smpl.name+'"'+(curFixed===smpl.name?' selected':'')+'>'+label+'</option>';
+          });
+          inner+='</optgroup>';
+        });
+      }
+
       inner+='</select>';
       inner+='</div>';
+    } else {
+      // このパートのサンプルが全キットに無い場合、他パートのサンプルから選択
+      var curFixed = _trackSample[tr.id] || '';
+      // 全サンプルから選択できるオプションを表示
+      var altSamples = [];
+      Object.keys(_MS).forEach(function(tid2){
+        (_MS[tid2]||[]).forEach(function(s){ altSamples.push(s); });
+      });
+      if(altSamples.length > 0){
+        inner+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">';
+        inner+='<span style="font-size:.72rem;color:#e05555;min-width:52px">代替音源</span>';
+        inner+='<select style="flex:1;background:#1e1e3a;color:#fff;border:1px solid rgba(255,80,80,0.4);border-radius:4px;padding:2px 6px;font-size:.72rem" onchange=\'setTrackSample("'+tr.id+'",this.value)\'>';
+        inner+='<option value="">🔇 シンセ音源</option>';
+        var altKits = [];
+        altSamples.forEach(function(s){ if(altKits.indexOf(s.kit)===-1) altKits.push(s.kit); });
+        var kitLabels4 = {rock:'Rock Kit',slingerland:'Slingerland',boombap:'Boom Bap',
+          phonk:'Phonk',synthwave:'Synthwave',jazz:'Jazz Funk'};
+        altKits.forEach(function(kit){
+          var grp = altSamples.filter(function(s){ return s.kit===kit; });
+          inner+='<optgroup label="── '+(kitLabels4[kit]||kit)+' ──">';
+          grp.forEach(function(smpl){
+            var label = smpl.name.replace(/\.(wav|WAV)$/,'');
+            inner+='<option value="'+smpl.name+'"'+(curFixed===smpl.name?' selected':'')+'>'+label+'</option>';
+          });
+          inner+='</optgroup>';
+        });
+        inner+='</select>';
+        inner+='</div>';
+      }
     }
 
     row.innerHTML=inner;
