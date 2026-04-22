@@ -738,33 +738,30 @@ function buildAlphaTex(){
         for(var nj=si2+1;nj<barLen;nj++){
           if((slots[m*barLen+nj]||[]).some(function(ev){return UPPER[ev.track];})){dist=nj-si2;break;}
         }
-        // 音符長: 最大4分音符(spbVal)まで、最小16分音符(spbVal/4)
-        var st=Math.min(dist, spbVal);
-        // 4/2/1/... に丸める（最小は16分音符）
-        if(st>=spbVal)          st=spbVal;         // 4分
-        else if(st>=spbVal/2)   st=spbVal/2;       // 8分
-        else                    st=spbVal/4;        // 16分（最小）
-        st=Math.max(Math.round(spbVal/4), Math.round(st));
+        // 表示用音符長（最小16分音符）
+        var st_disp=Math.min(dist, spbVal);
+        if(st_disp>=spbVal)        st_disp=spbVal;
+        else if(st_disp>=spbVal/2) st_disp=spbVal/2;
+        else                       st_disp=Math.round(spbVal/4);
+        st_disp=Math.max(Math.round(spbVal/4), st_disp);
+        // ステップ進み量は実際のdist（音符を飛ばさないため）
+        var st=Math.max(1, Math.min(dist, spbVal));
         var arts=evs.map(function(ev){return ART[ev.track]||'SnareHit';})
                     .filter(function(a,i,arr){return arr.indexOf(a)===i;});
-        // オーナメントを取得（最初のイベントのornを使用）
         var orn=getOrn(evs[0].track, m*barLen+si2);
-        var beat=(arts.length===1?arts[0]+'.'+stepsToDurUpper(st):'('+arts.join(' ')+').'+stepsToDurUpper(st));
+        var beat=(arts.length===1?arts[0]+'.'+stepsToDurUpper(st_disp):'('+arts.join(' ')+').'+stepsToDurUpper(st_disp));
         var props='{beam up';
-        if(orn==='accent') props+=' ac';       // アクセント記号
-        if(orn==='ghost')  props+=' g';        // ゴーストノート
+        if(orn==='accent') props+=' ac';
+        if(orn==='ghost')  props+=' g';
         props+='}';
-        // フラム: 装飾音符を前に付ける
         var prefix='';
         if(orn==='flam'){
           prefix=(arts.length===1?arts[0]+'.16{gr}':arts[0]+'.16{gr}')+' ';
         }
-        // ドラッグ: 装飾音符2つ
         if(orn==='drag'){
           prefix=(arts.length===1?arts[0]+'.32{gr} '+arts[0]+'.32{gr} ':arts[0]+'.32{gr} '+arts[0]+'.32{gr} ');
         }
-        // バズロール: トレモロ記号
-        if(orn==='buzz') props='{beam up tp 1}'; // tremolo picking
+        if(orn==='buzz') props='{beam up tp 1}';
         tokens.push(prefix+beat+props);
         si2+=st;
       } else {
@@ -799,12 +796,14 @@ function buildAlphaTex(){
           if((slots[m3*barLen3+nj3]||[]).some(function(ev){return LOWER[ev.track];})){dist3=nj3-si4;break;}
         }
         var tillBeat=spbVal-(si4%spbVal);
-        // 最大HALF_BEAT(8分)かつ拍境界でクリップ、最小16分音符
-        var st3=Math.min(dist3, tillBeat, HALF_BEAT);
+        // 実際のステップ進み量（音を飛ばさないため）
+        var st3_actual=Math.max(1, Math.min(dist3, tillBeat, HALF_BEAT));
+        // 表示用音符長（最小16分音符）
+        var st3=st3_actual;
         if(st3>=HALF_BEAT)        st3=HALF_BEAT;
-        else if(st3>=spbVal/4)    st3=spbVal/4;
-        else                      st3=Math.round(spbVal/4); // 16分が最小
-        st3=Math.max(Math.round(spbVal/4), Math.round(st3));
+        else if(st3>=spbVal/4)    st3=Math.round(spbVal/4);
+        else                      st3=Math.round(spbVal/4);
+        st3=Math.max(Math.round(spbVal/4), st3);
         var arts3=evs3.map(function(ev){return ART[ev.track]||'KickHit';})
                       .filter(function(a,i,arr){return arr.indexOf(a)===i;});
         var orn3=getOrn(evs3[0].track, m3*barLen3+si4);
@@ -816,7 +815,7 @@ function buildAlphaTex(){
         var pre3='';
         if(orn3==='flam') pre3=arts3[0]+'.'+stepsToDurLower(st3)+'{gr} ';
         tokens3.push(pre3+(arts3.length===1?arts3[0]+'.'+stepsToDurLower(st3):'('+arts3.join(' ')+').'+stepsToDurLower(st3))+prop3);
-        si4+=st3;
+        si4+=st3_actual;
       } else {
         var beatPos=si4%spbVal;
         var tillB=spbVal-beatPos;
