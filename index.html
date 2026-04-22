@@ -686,14 +686,11 @@ function buildAlphaTex(){
   // 32分音符 = spbVal/8 steps (32分グリッドの1ステップ)
   // ※ グリッドがどんなに細かくても、音符の長さは実際の間隔で決まる
   function stepsToDur(steps) {
-    // 実際の間隔を4分音符=spbVal基準で判定
-    if (steps >= spbVal * 4) return '1';   // 全音符
-    if (steps >= spbVal * 2) return '2';   // 2分音符
-    if (steps >= spbVal)     return '4';   // 4分音符
-    if (steps >= spbVal / 2) return '8';   // 8分音符
-    if (steps >= spbVal / 4) return '16';  // 16分音符
-    if (steps >= spbVal / 8) return '32';  // 32分音符
-    return '32'; // それ以下は32分
+    if (steps >= spbVal * 4) return '1';
+    if (steps >= spbVal * 2) return '2';
+    if (steps >= spbVal)     return '4';
+    if (steps >= spbVal / 2) return '8';
+    return '16'; // 16分が最小（32分音符は使わない）
   }
 
   // 上声部用: ヒット間隔が16分相当以上なら16分に切る（32分グリッドでも16分に丸める）
