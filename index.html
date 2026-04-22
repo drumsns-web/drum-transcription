@@ -738,15 +738,13 @@ function buildAlphaTex(){
         for(var nj=si2+1;nj<barLen;nj++){
           if((slots[m*barLen+nj]||[]).some(function(ev){return UPPER[ev.track];})){dist=nj-si2;break;}
         }
-        // 音符長: 最大4分音符(spbVal)まで
+        // 音符長: 最大4分音符(spbVal)まで、最小16分音符(spbVal/4)
         var st=Math.min(dist, spbVal);
-        // 4/2/1/... に丸める（spbValの約数に）
-        if(st>=spbVal)          st=spbVal;       // 4分
-        else if(st>=spbVal/2)   st=spbVal/2;     // 8分
-        else if(st>=spbVal/4)   st=spbVal/4;     // 16分
-        else if(st>=spbVal/8)   st=spbVal/8;     // 32分
-        else                    st=spbVal/8||1;
-        st=Math.max(1, Math.round(st));
+        // 4/2/1/... に丸める（最小は16分音符）
+        if(st>=spbVal)          st=spbVal;         // 4分
+        else if(st>=spbVal/2)   st=spbVal/2;       // 8分
+        else                    st=spbVal/4;        // 16分（最小）
+        st=Math.max(Math.round(spbVal/4), Math.round(st));
         var arts=evs.map(function(ev){return ART[ev.track]||'SnareHit';})
                     .filter(function(a,i,arr){return arr.indexOf(a)===i;});
         // オーナメントを取得（最初のイベントのornを使用）
@@ -778,9 +776,8 @@ function buildAlphaTex(){
           var rs;
           if(rem>=spbVal)        rs=spbVal;
           else if(rem>=spbVal/2) rs=spbVal/2;
-          else if(rem>=spbVal/4) rs=spbVal/4;
-          else                   rs=Math.max(1,spbVal/8|0);
-          rs=Math.max(1,Math.round(rs));
+          else                   rs=Math.round(spbVal/4); // 16分が最小
+          rs=Math.max(Math.round(spbVal/4),Math.round(rs));
           tokens.push('r.'+stepsToDur(rs));
           rem-=rs;
         }
@@ -802,13 +799,12 @@ function buildAlphaTex(){
           if((slots[m3*barLen3+nj3]||[]).some(function(ev){return LOWER[ev.track];})){dist3=nj3-si4;break;}
         }
         var tillBeat=spbVal-(si4%spbVal);
-        // 最大HALF_BEAT(8分)かつ拍境界でクリップ
+        // 最大HALF_BEAT(8分)かつ拍境界でクリップ、最小16分音符
         var st3=Math.min(dist3, tillBeat, HALF_BEAT);
-        if(st3>=HALF_BEAT)          st3=HALF_BEAT;
-        else if(st3>=spbVal/4)      st3=spbVal/4;
-        else if(st3>=spbVal/8)      st3=spbVal/8;
-        else                        st3=Math.max(1,spbVal/8|0);
-        st3=Math.max(1,Math.round(st3));
+        if(st3>=HALF_BEAT)        st3=HALF_BEAT;
+        else if(st3>=spbVal/4)    st3=spbVal/4;
+        else                      st3=Math.round(spbVal/4); // 16分が最小
+        st3=Math.max(Math.round(spbVal/4), Math.round(st3));
         var arts3=evs3.map(function(ev){return ART[ev.track]||'KickHit';})
                       .filter(function(a,i,arr){return arr.indexOf(a)===i;});
         var orn3=getOrn(evs3[0].track, m3*barLen3+si4);
