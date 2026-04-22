@@ -690,7 +690,9 @@ function buildAlphaTex(){
     if (steps >= spbVal * 2) return '2';
     if (steps >= spbVal)     return '4';
     if (steps >= spbVal / 2) return '8';
-    return '16'; // 16分が最小（32分音符は使わない）
+    if (steps >= spbVal / 4) return '16';
+    if (steps >= spbVal / 8) return '32';
+    return '32';
   }
 
   // 上声部用: ヒット間隔が16分相当以上なら16分に切る（32分グリッドでも16分に丸める）
@@ -735,14 +737,13 @@ function buildAlphaTex(){
         for(var nj=si2+1;nj<barLen;nj++){
           if((slots[m*barLen+nj]||[]).some(function(ev){return UPPER[ev.track];})){dist=nj-si2;break;}
         }
-        // 進み量: 実際のdist（音符を飛ばさない）
-        var st_advance = Math.min(dist, spbVal);
-        // 表示用音符長: 最小16分音符（32分は16分に丸める）
-        var st=st_advance;
+        var st=Math.min(dist, spbVal);
         if(st>=spbVal)          st=spbVal;
         else if(st>=spbVal/2)   st=spbVal/2;
         else if(st>=spbVal/4)   st=spbVal/4;
-        else                    st=Math.round(spbVal/4);
+        else if(st>=spbVal/8)   st=spbVal/8;
+        else                    st=Math.max(1,spbVal/8|0);
+        st=Math.max(1, Math.round(st));
         var arts=evs.map(function(ev){return ART[ev.track]||'SnareHit';})
                     .filter(function(a,i,arr){return arr.indexOf(a)===i;});
         var orn=getOrn(evs[0].track, m*barLen+si2);
@@ -760,7 +761,7 @@ function buildAlphaTex(){
         }
         if(orn==='buzz') props='{beam up tp 1}';
         tokens.push(prefix+beat+props);
-        si2+=st_advance;
+        si2+=st;
       } else {
         // 空白: まとめて休符
         var gap=0;
@@ -793,13 +794,12 @@ function buildAlphaTex(){
           if((slots[m3*barLen3+nj3]||[]).some(function(ev){return LOWER[ev.track];})){dist3=nj3-si4;break;}
         }
         var tillBeat=spbVal-(si4%spbVal);
-        var st3_advance=Math.min(dist3, tillBeat, HALF_BEAT);
-        st3_advance=Math.max(1, st3_advance);
-        // 表示用（最小16分）
-        var st3=st3_advance;
-        if(st3>=HALF_BEAT)        st3=HALF_BEAT;
-        else if(st3>=spbVal/4)    st3=spbVal/4;
-        else                      st3=Math.round(spbVal/4);
+        var st3=Math.min(dist3, tillBeat, HALF_BEAT);
+        if(st3>=HALF_BEAT)          st3=HALF_BEAT;
+        else if(st3>=spbVal/4)      st3=spbVal/4;
+        else if(st3>=spbVal/8)      st3=spbVal/8;
+        else                        st3=Math.max(1,spbVal/8|0);
+        st3=Math.max(1,Math.round(st3));
         var arts3=evs3.map(function(ev){return ART[ev.track]||'KickHit';})
                       .filter(function(a,i,arr){return arr.indexOf(a)===i;});
         var orn3=getOrn(evs3[0].track, m3*barLen3+si4);
@@ -811,7 +811,7 @@ function buildAlphaTex(){
         var pre3='';
         if(orn3==='flam') pre3=arts3[0]+'.'+stepsToDurLower(st3)+'{gr} ';
         tokens3.push(pre3+(arts3.length===1?arts3[0]+'.'+stepsToDurLower(st3):'('+arts3.join(' ')+').'+stepsToDurLower(st3))+prop3);
-        si4+=st3_advance;
+        si4+=st3;
       } else {
         var beatPos=si4%spbVal;
         var tillB=spbVal-beatPos;
