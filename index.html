@@ -738,18 +738,18 @@ function buildAlphaTex(){
         for(var nj=si2+1;nj<barLen;nj++){
           if((slots[m*barLen+nj]||[]).some(function(ev){return UPPER[ev.track];})){dist=nj-si2;break;}
         }
-        // 表示用音符長（最小16分音符）
-        var st_disp=Math.min(dist, spbVal);
-        if(st_disp>=spbVal)        st_disp=spbVal;
-        else if(st_disp>=spbVal/2) st_disp=spbVal/2;
-        else                       st_disp=Math.round(spbVal/4);
-        st_disp=Math.max(Math.round(spbVal/4), st_disp);
-        // ステップ進み量は実際のdist（音符を飛ばさないため）
-        var st=Math.max(1, Math.min(dist, spbVal));
+        // 進み量: 実際のdist（音符を飛ばさない）
+        var st_advance = Math.min(dist, spbVal);
+        // 表示用音符長: 最小16分音符（32分は16分に丸める）
+        var st=st_advance;
+        if(st>=spbVal)          st=spbVal;
+        else if(st>=spbVal/2)   st=spbVal/2;
+        else if(st>=spbVal/4)   st=spbVal/4;
+        else                    st=Math.round(spbVal/4);
         var arts=evs.map(function(ev){return ART[ev.track]||'SnareHit';})
                     .filter(function(a,i,arr){return arr.indexOf(a)===i;});
         var orn=getOrn(evs[0].track, m*barLen+si2);
-        var beat=(arts.length===1?arts[0]+'.'+stepsToDurUpper(st_disp):'('+arts.join(' ')+').'+stepsToDurUpper(st_disp));
+        var beat=(arts.length===1?arts[0]+'.'+stepsToDurUpper(st):'('+arts.join(' ')+').'+stepsToDurUpper(st));
         var props='{beam up';
         if(orn==='accent') props+=' ac';
         if(orn==='ghost')  props+=' g';
@@ -763,7 +763,7 @@ function buildAlphaTex(){
         }
         if(orn==='buzz') props='{beam up tp 1}';
         tokens.push(prefix+beat+props);
-        si2+=st;
+        si2+=st_advance;
       } else {
         // 空白: まとめて休符
         var gap=0;
@@ -796,14 +796,13 @@ function buildAlphaTex(){
           if((slots[m3*barLen3+nj3]||[]).some(function(ev){return LOWER[ev.track];})){dist3=nj3-si4;break;}
         }
         var tillBeat=spbVal-(si4%spbVal);
-        // 実際のステップ進み量（音を飛ばさないため）
-        var st3_actual=Math.max(1, Math.min(dist3, tillBeat, HALF_BEAT));
-        // 表示用音符長（最小16分音符）
-        var st3=st3_actual;
+        var st3_advance=Math.min(dist3, tillBeat, HALF_BEAT);
+        st3_advance=Math.max(1, st3_advance);
+        // 表示用（最小16分）
+        var st3=st3_advance;
         if(st3>=HALF_BEAT)        st3=HALF_BEAT;
-        else if(st3>=spbVal/4)    st3=Math.round(spbVal/4);
+        else if(st3>=spbVal/4)    st3=spbVal/4;
         else                      st3=Math.round(spbVal/4);
-        st3=Math.max(Math.round(spbVal/4), st3);
         var arts3=evs3.map(function(ev){return ART[ev.track]||'KickHit';})
                       .filter(function(a,i,arr){return arr.indexOf(a)===i;});
         var orn3=getOrn(evs3[0].track, m3*barLen3+si4);
@@ -815,7 +814,7 @@ function buildAlphaTex(){
         var pre3='';
         if(orn3==='flam') pre3=arts3[0]+'.'+stepsToDurLower(st3)+'{gr} ';
         tokens3.push(pre3+(arts3.length===1?arts3[0]+'.'+stepsToDurLower(st3):'('+arts3.join(' ')+').'+stepsToDurLower(st3))+prop3);
-        si4+=st3_actual;
+        si4+=st3_advance;
       } else {
         var beatPos=si4%spbVal;
         var tillB=spbVal-beatPos;
